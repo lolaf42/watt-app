@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""GTK3/Cairo persistent glow border — runs while charging.
+"""GTK3/Cairo growing-snake glow animation.
 
-Draws a wide, breathing green glow frame around all 4 screen edges,
-with RGBA transparency so the desktop stays fully visible.
+A bright green line starts at left-center and grows clockwise:
+  left-center → up → top-right → down → bottom-left → back to start
+
+On completion: one breath flash, then fades out and exits.
 
 Usage: python3 glow_worker.py <r> <g> <b>
-Runs until terminated by the parent (screen_glow.py).
 """
 
 import os
-os.environ.setdefault("GDK_BACKEND", "x11")   # must be before gi import
+os.environ.setdefault("GDK_BACKEND", "x11")
 
 import gi
 gi.require_version("Gtk", "3.0")
@@ -21,113 +22,142 @@ import math
 import sys
 import time
 
-# ── Colour from CLI args ──────────────────────────────────────────────────────
+# ── Colour ────────────────────────────────────────────────────────────────────
 _R, _G, _B = int(sys.argv[1]) / 255, int(sys.argv[2]) / 255, int(sys.argv[3]) / 255
 
-_GLOW_W      = 72    # glow width (px) inward from each edge
-_PULSE_S     = 3.0   # seconds per breath cycle
-_SHOW_S      = 5.0   # seconds to stay fully visible
-_FADE_S      = 1.0   # seconds for the fade-out at the end
-_FPS         = 30    # frames per second
+# ── Timing ────────────────────────────────────────────────────────────────────
+_SPEED   = 1400   # px / second the head travels
+_FINISH_S = 1.2   # seconds to breathe + fade after loop completes
+_FPS     = 60
+
+# ── Glow layers: (line_width_px, alpha) outer → inner ────────────────────────
+_LAYERS = [(26, 0.07), (12, 0.35), (5, 1.00)]
 
 
-class GlowBorder:
+def _xy(d: float, perim: float, W: int, H: int):
+    """Clockwise perimeter distance from top-left → screen (x, y)."""
+    d = d % perim
+    if d < W:     return d,     0.0
+    d -= W
+    if d < H:     return W,     d
+    d -= H
+    if d < W:     return W - d, H
+    d -= W
+    return            0.0,  H - d
+
+
+class GlowSnake:
+
+    _GROWING = "growing"
+    _FINISH  = "finish"
 
     def __init__(self):
         display = Gdk.Display.get_default()
         monitor = display.get_primary_monitor()
         geo     = monitor.get_geometry()
         self.sw, self.sh = geo.width, geo.height
-        self._t0 = time.monotonic()
 
+        self.perim   = 2 * (self.sw + self.sh)
+        # Left-center going upward in the clockwise parameterisation
+        self.start_d = float(2 * self.sw + (self.sh * 3) // 2)
+
+        self.elapsed  = 0.0
+        self.last_t   = time.monotonic()
+        self.phase    = self._GROWING
+        self.phase_t  = 0.0
+
+        # ── GTK window ────────────────────────────────────────────────────────
         win = Gtk.Window(type=Gtk.WindowType.POPUP)
         win.set_accept_focus(False)
         win.set_skip_taskbar_hint(True)
         win.set_skip_pager_hint(True)
 
-        # ── RGBA visual for per-pixel transparency ────────────────────────────
-        screen      = win.get_screen()
-        rgba_visual = screen.get_rgba_visual()
-        if rgba_visual:
-            win.set_visual(rgba_visual)
+        screen = win.get_screen()
+        rgba   = screen.get_rgba_visual()
+        if rgba:
+            win.set_visual(rgba)
         win.set_app_paintable(True)
 
-        # ── Size/position ─────────────────────────────────────────────────────
         win.set_default_size(self.sw, self.sh)
         win.resize(self.sw, self.sh)
         win.connect("draw", self._on_draw)
         win.show_all()
         win.move(geo.x, geo.y)
         win.resize(self.sw, self.sh)
-
-        # ── Click-through: empty input region (after show_all) ────────────────
         win.input_shape_combine_region(cairo.Region())
 
         self.win = win
         GLib.timeout_add(1000 // _FPS, self._tick)
 
-    # ── Animation ─────────────────────────────────────────────────────────────
+    # ── Loop ──────────────────────────────────────────────────────────────────
 
     def _tick(self) -> bool:
-        age = time.monotonic() - self._t0
-        if age >= _SHOW_S + _FADE_S:
-            self.win.hide()
-            sys.exit(0)
+        now = time.monotonic()
+        dt  = now - self.last_t
+        self.last_t = now
+
+        if self.phase == self._GROWING:
+            self.elapsed += _SPEED * dt
+            if self.elapsed >= self.perim:
+                self.elapsed = self.perim
+                self.phase   = self._FINISH
+                self.phase_t = now
+
+        elif self.phase == self._FINISH:
+            if now - self.phase_t >= _FINISH_S:
+                self.win.hide()
+                sys.exit(0)
+
         self.win.queue_draw()
         return True
+
+    # ── Geometry ──────────────────────────────────────────────────────────────
+
+    def _sample_arc(self):
+        arc = max(0.0, self.elapsed)
+        n   = max(2, int(arc / 5))
+        return [_xy(self.start_d + arc * i / n, self.perim, self.sw, self.sh)
+                for i in range(n + 1)]
 
     # ── Drawing ───────────────────────────────────────────────────────────────
 
     def _on_draw(self, widget, cr: cairo.Context) -> bool:
-        W, H = self.sw, self.sh
-        gw   = _GLOW_W
-        r, g, b = _R, _G, _B
-
         # Fully transparent base
         cr.set_source_rgba(0, 0, 0, 0)
         cr.set_operator(cairo.OPERATOR_SOURCE)
         cr.paint()
         cr.set_operator(cairo.OPERATOR_OVER)
 
-        # Breathing pulse + fade-out after _SHOW_S seconds
-        age = time.monotonic() - self._t0
-        if age >= _SHOW_S:
-            # Smooth fade-out over _FADE_S seconds
-            fade  = max(0.0, 1.0 - (age - _SHOW_S) / _FADE_S)
-            pulse = fade
+        pts = self._sample_arc()
+        if len(pts) < 2:
+            return False
+
+        # Brightness multiplier (breathing flash + fade-out on finish)
+        if self.phase == self._FINISH:
+            age     = time.monotonic() - self.phase_t
+            t       = age / _FINISH_S
+            breathe = 0.5 + 0.5 * math.cos(age * math.pi * 1.8)
+            fade    = max(0.0, 1.0 - t ** 0.6)
+            boost   = (1.0 + breathe * 0.4) * fade
         else:
-            # Gentle breathing (±15 %)
-            pulse = 0.85 + 0.15 * math.cos(age * 2 * math.pi / _PULSE_S)
+            boost = 1.0
 
-        def _grad(gx0, gy0, gx1, gy1):
-            """Linear gradient from screen edge (bright) to interior (clear)."""
-            pat = cairo.LinearGradient(gx0, gy0, gx1, gy1)
-            pat.add_color_stop_rgba(0.00, r, g, b, pulse * 1.00)
-            pat.add_color_stop_rgba(0.15, r, g, b, pulse * 0.90)
-            pat.add_color_stop_rgba(0.35, r, g, b, pulse * 0.55)
-            pat.add_color_stop_rgba(0.60, r, g, b, pulse * 0.18)
-            pat.add_color_stop_rgba(0.80, r, g, b, pulse * 0.05)
-            pat.add_color_stop_rgba(1.00, r, g, b, 0.00)
-            return pat
+        # Draw glow layers (outer → inner)
+        for lw, la in _LAYERS:
+            cr.set_source_rgba(_R, _G, _B, la * boost)
+            cr.set_line_width(lw)
+            cr.set_line_cap(cairo.LINE_CAP_ROUND)
+            cr.set_line_join(cairo.LINE_JOIN_ROUND)
+            x0, y0 = pts[0]
+            cr.move_to(x0, y0)
+            for x, y in pts[1:]:
+                cr.line_to(x, y)
+            cr.stroke()
 
-        # Top  — gradient flows downward from y=0
-        cr.set_source(_grad(0, 0,   0, gw))
-        cr.rectangle(0,    0,    W,  gw)
-        cr.fill()
-
-        # Bottom — gradient flows upward from y=H
-        cr.set_source(_grad(0, H,   0, H - gw))
-        cr.rectangle(0,    H-gw, W,  gw)
-        cr.fill()
-
-        # Left  — gradient flows rightward from x=0
-        cr.set_source(_grad(0, 0,   gw, 0))
-        cr.rectangle(0,    0,    gw, H)
-        cr.fill()
-
-        # Right — gradient flows leftward from x=W
-        cr.set_source(_grad(W, 0,   W-gw, 0))
-        cr.rectangle(W-gw, 0,    gw, H)
+        # Bright white dot at head
+        hx, hy = pts[-1]
+        cr.set_source_rgba(1.0, 1.0, 1.0, boost)
+        cr.arc(hx, hy, 5, 0, 2 * math.pi)
         cr.fill()
 
         return False
@@ -136,5 +166,5 @@ class GlowBorder:
 # ── Entry ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    GlowBorder()
+    GlowSnake()
     Gtk.main()
