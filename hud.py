@@ -257,7 +257,7 @@ class HudOverlay:
         self._alpha = 1.0
         self._label = None
 
-        self._redraw(state, fill_progress=1.0)
+        self._redraw(state)
         x, y = self._calc_pos()
         win.geometry(f"{W}x{H}+{x}+{y}")
 

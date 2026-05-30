@@ -173,8 +173,6 @@ class SettingsWindow(tk.Toplevel):
         self._preview_job = None
         if self._on_preview:
             self._on_preview({
-                "snake_speed":      self._v_speed.get(),
-                "line_width":       self._v_lw.get(),
                 "border_intensity": self._v_bint.get(),
                 "border_duration":  round(self._v_bdur.get(), 1),
             })
