@@ -39,16 +39,24 @@ def _find_font(candidates: list[str], size: int) -> ImageFont.FreeTypeFont:
     return ImageFont.load_default()
 
 
-# ── Status color ───────────────────────────────────────────────────────────────
+# ── Color scheme (shared with main.py via import) ─────────────────────────────
+
+def charge_color(percent: int) -> tuple[int, int, int]:
+    """Border/glow color based on battery charge level."""
+    if percent >= 60:
+        return (0, 200, 60)    # green
+    if percent >= 25:
+        return (255, 140, 0)   # orange
+    if percent >= 10:
+        return (220, 70, 0)    # dark orange
+    return (200, 30, 30)       # red
+
 
 def _status_color(state: BatteryState) -> tuple[int, int, int]:
+    """Icon/text accent color."""
     if state.is_charging or state.is_full:
         return (0, 204, 0)
-    if state.percent <= 10:
-        return (210, 40, 40)
-    if state.percent <= 20:
-        return (255, 140, 0)
-    return (140, 140, 140)
+    return charge_color(state.percent)
 
 
 # ── Pill image renderer ────────────────────────────────────────────────────────
@@ -60,6 +68,61 @@ W, H, R = 340, 76, 38
 BORDER   = 3
 ICON_CX  = 24
 PAD_LEFT = 52
+
+
+# ── Perimeter math (same convention as glow_worker) ───────────────────────────
+
+def _pill_perim(gw: int, gh: int, gr: int) -> float:
+    return 2 * (gw - 2 * gr) + 2 * math.pi * gr
+
+
+def _pill_xy(dist: float, gw: int, gh: int, gr: int) -> tuple[float, float]:
+    """Perimeter distance → (x, y), clockwise from left-centre going up."""
+    perim = _pill_perim(gw, gh, gr)
+    d     = dist % perim
+    aq    = math.pi * gr / 2
+    st    = gw - 2 * gr
+
+    if d < aq:
+        t = math.pi * (1 - d / aq * 0.5)
+        return gr + gr * math.cos(t), gr - gr * math.sin(t)
+    d -= aq
+    if d < st:
+        return gr + d, 0.0
+    d -= st
+    if d < aq:
+        t = math.pi / 2 * (1 - d / aq)
+        return gw - gr + gr * math.cos(t), gr - gr * math.sin(t)
+    d -= aq
+    if d < aq:
+        t = -math.pi / 2 * d / aq
+        return gw - gr + gr * math.cos(t), gr - gr * math.sin(t)
+    d -= aq
+    if d < st:
+        return gw - gr - d, float(gh)
+    d -= st
+    frac = min(d / aq, 1.0)
+    t = -math.pi / 2 * (1 + frac)
+    return gr + gr * math.cos(t), gr - gr * math.sin(t)
+
+
+def _draw_charge_border(d: ImageDraw.ImageDraw, percent: int,
+                        fill_progress: float = 1.0) -> None:
+    """Draw partial pill border representing charge level, optionally animated."""
+    if percent <= 0:
+        return
+    color  = charge_color(percent)
+    perim  = _pill_perim(W, H, R)
+    target = perim * min(percent, 100) / 100 * fill_progress
+    n      = 400
+    pts: list[tuple[float, float]] = []
+    for i in range(n + 1):
+        dist = perim * i / n
+        if dist > target:
+            break
+        pts.append(_pill_xy(dist, W, H, R))
+    if len(pts) >= 2:
+        d.line(pts, fill=(*color, 255), width=4)
 
 
 def _draw_battery_icon(d, cx, cy, percent, is_charging, color):
@@ -88,25 +151,17 @@ def make_pill_image(state: BatteryState, fill_progress: float = 1.0) -> Image.Im
     img = Image.new("RGBA", (W, H), (*_CHROMA, 255))
     d   = ImageDraw.Draw(img)
 
+    # Background
     d.rounded_rectangle([0, 0, W - 1, H - 1], radius=R, fill=(18, 18, 18, 235))
+
+    # Dim full-perimeter outline
     d.rounded_rectangle([0, 0, W - 1, H - 1], radius=R,
-                         outline=(55, 55, 55, 180), width=BORDER)
+                         outline=(45, 45, 45, 160), width=BORDER)
 
-    # Animated charge bar at bottom (fill animation)
-    if fill_progress < 1.0:
-        target = 1.0 if (state.is_charging or state.is_full) else state.percent / 100.0
-        bar_w  = int((W - 16) * target * fill_progress)
-        if bar_w > 0:
-            d.rounded_rectangle([8, H - 7, 8 + bar_w, H - 3],
-                                 radius=2, fill=(*color, 200))
-    else:
-        # Static subtle bar when not animating
-        target = 1.0 if (state.is_charging or state.is_full) else state.percent / 100.0
-        bar_w  = int((W - 16) * target)
-        if bar_w > 0:
-            d.rounded_rectangle([8, H - 7, 8 + bar_w, H - 3],
-                                 radius=2, fill=(*color, 120))
+    # Colored charge border (partial perimeter = battery percent)
+    _draw_charge_border(d, state.percent, fill_progress=fill_progress)
 
+    # Battery icon + text
     _draw_battery_icon(d, ICON_CX, H // 2, state.percent, state.is_charging, color)
 
     font_title = _find_font(_FONTS_BOLD, 17)
@@ -130,10 +185,10 @@ class HudOverlay:
     def __init__(self, root: tk.Tk, config=None):
         self._root   = root
         self._config = config
-        self._win:        Optional[tk.Toplevel]   = None
-        self._label:      Optional[tk.Label]       = None
-        self._photo:      Optional[tk.PhotoImage]  = None
-        self._dismiss_id: Optional[str]            = None
+        self._win:        Optional[tk.Toplevel]  = None
+        self._label:      Optional[tk.Label]     = None
+        self._photo:      Optional[tk.PhotoImage] = None
+        self._dismiss_id: Optional[str]          = None
         self._alpha = 1.0
 
     # ── Public API ───────────────────────────────────────────────────────────
@@ -147,33 +202,18 @@ class HudOverlay:
     # ── Config helpers ───────────────────────────────────────────────────────
 
     def _hud_cfg(self) -> dict:
-        if self._config:
-            return self._config.data.get("hud", {})
-        return {}
+        return self._config.data.get("hud", {}) if self._config else {}
 
     def _calc_pos(self) -> tuple[int, int]:
         cfg    = self._hud_cfg()
         pos_v  = cfg.get("position_v", "top")
         pos_h  = cfg.get("position_h", "center")
         margin = 40
+        sw     = self._root.winfo_screenwidth()
+        sh     = self._root.winfo_screenheight()
 
-        sw = self._root.winfo_screenwidth()
-        sh = self._root.winfo_screenheight()
-
-        if pos_h == "left":
-            x = margin
-        elif pos_h == "right":
-            x = sw - W - margin
-        else:
-            x = (sw - W) // 2
-
-        if pos_v == "top":
-            y = margin
-        elif pos_v == "bottom":
-            y = sh - H - 60
-        else:
-            y = (sh - H) // 2
-
+        x = margin if pos_h == "left" else sw - W - margin if pos_h == "right" else (sw - W) // 2
+        y = margin if pos_v == "top"  else sh - H - 60    if pos_v == "bottom" else (sh - H) // 2
         return x, y
 
     # ── Internal ─────────────────────────────────────────────────────────────
@@ -195,18 +235,17 @@ class HudOverlay:
         self._label = None
 
         self._redraw(state, fill_progress=1.0)
-
         x, y = self._calc_pos()
         win.geometry(f"{W}x{H}+{x}+{y}")
 
         anim = self._hud_cfg().get("animation", "bounce")
         if anim == "fade":
             win.attributes("-alpha", 0.0)
-            self._anim_fade_in(steps=15)
+            self._anim_fade_in()
         elif anim == "bounce":
             self._anim_bounce(x, y)
         elif anim == "fill":
-            self._anim_fill(state, steps=24)
+            self._anim_fill(state)
 
         self._schedule_dismiss()
 
@@ -233,37 +272,32 @@ class HudOverlay:
         if step < steps - 1:
             self._root.after(16, lambda: self._anim_fade_in(step + 1, steps))
 
-    def _anim_bounce(self, target_x: int, target_y: int, steps: int = 22) -> None:
-        if not self._win or not self._win.winfo_exists():
-            return
+    def _anim_bounce(self, tx: int, ty: int, steps: int = 22) -> None:
         pos_v  = self._hud_cfg().get("position_v", "top")
         sh     = self._root.winfo_screenheight()
         start_y = sh + H if pos_v == "bottom" else -H
 
-        def _ease_out_back(t: float) -> float:
-            c1 = 1.70158
-            c3 = c1 + 1
+        def _ease(t: float) -> float:
+            c1, c3 = 1.70158, 2.70158
             return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2
 
         def _step(i: int) -> None:
             if not self._win or not self._win.winfo_exists():
                 return
-            t = _ease_out_back((i + 1) / steps)
-            y = int(start_y + (target_y - start_y) * t)
-            self._win.geometry(f"+{target_x}+{y}")
+            y = int(start_y + (ty - start_y) * _ease((i + 1) / steps))
+            self._win.geometry(f"+{tx}+{y}")
             if i < steps - 1:
                 self._root.after(16, lambda: _step(i + 1))
 
         _step(0)
 
-    def _anim_fill(self, state: BatteryState, step: int = 0, steps: int = 24) -> None:
+    def _anim_fill(self, state: BatteryState, step: int = 0, steps: int = 28) -> None:
         if not self._win or not self._win.winfo_exists():
             return
-        t        = (step + 1) / steps
-        progress = 1 - (1 - t) ** 3   # ease-out cubic
-        self._redraw(state, fill_progress=progress)
+        t = (step + 1) / steps
+        self._redraw(state, fill_progress=1 - (1 - t) ** 3)
         if step < steps - 1:
-            self._root.after(18, lambda: self._anim_fill(state, step + 1, steps))
+            self._root.after(16, lambda: self._anim_fill(state, step + 1, steps))
 
     # ── Dismiss / fade-out ────────────────────────────────────────────────────
 
@@ -281,9 +315,8 @@ class HudOverlay:
         if steps_left <= 0:
             self._destroy()
             return
-        self._alpha = steps_left / self.FADE_STEPS
         try:
-            self._win.attributes("-alpha", self._alpha)
+            self._win.attributes("-alpha", steps_left / self.FADE_STEPS)
         except Exception:
             pass
         self._root.after(self.FADE_MS, lambda: self._fade_step(steps_left - 1))

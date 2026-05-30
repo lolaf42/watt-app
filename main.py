@@ -13,7 +13,7 @@ from PIL import Image, ImageDraw
 from alerts import AlertManager
 from battery import BatteryState, get_battery_state
 from config import ConfigManager
-from hud import HudOverlay
+from hud import HudOverlay, charge_color
 from notifier import send_notification
 from screen_glow import ScreenGlow
 from settings_window import SettingsWindow
@@ -368,8 +368,7 @@ def _watch_charging() -> None:
             if prev_charging is not None and s.is_charging != prev_charging:
                 if _glow:
                     if s.is_charging:
-                        color = (0, 170, 0) if s.percent > 75 else (255, 140, 0)
-                        _glow.show(color)
+                        _glow.show(charge_color(s.percent))
                     else:
                         _glow.hide()
                 if _hud:
@@ -453,8 +452,7 @@ def main() -> None:
 
     # Start glow if already charging on launch
     if _glow and _state.has_battery and _state.is_charging:
-        color = (0, 170, 0) if _state.percent > 75 else (255, 140, 0)
-        _glow.show(color)
+        _glow.show(charge_color(_state.percent))
 
     logger.info("Watt started — %s", _state.status_text)
     try:
