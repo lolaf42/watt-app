@@ -102,7 +102,7 @@ class BatteryPopup(tk.Toplevel):
     RED  = "#CC2222"
     SEP  = "#1A2535"
 
-    def __init__(self, parent: tk.Tk, state: BatteryState):
+    def __init__(self, parent: tk.Tk, state: BatteryState, click_x: int = 0, click_y: int = 0):
         super().__init__(parent)
         self.overrideredirect(True)
         self.attributes("-topmost", True)
@@ -114,7 +114,11 @@ class BatteryPopup(tk.Toplevel):
         sh = self.winfo_screenheight()
         w  = self.winfo_reqwidth()
         h  = self.winfo_reqheight()
-        self.geometry(f"+{sw - w - 14}+{sh - h - 56}")
+        # Position near the tray icon (click position)
+        x = max(0, min(click_x - w // 2, sw - w - 8))
+        y = click_y - h - 8 if click_y > sh // 2 else click_y + 8
+        y = max(0, min(y, sh - h - 8))
+        self.geometry(f"+{x}+{y}")
         self.bind("<FocusOut>", lambda _e: self.destroy())
         self.focus_force()
 
@@ -495,7 +499,8 @@ def _show_popup() -> None:
         return
     with _state_lock:
         state = _state
-    _popup = BatteryPopup(_root, state)
+    mx, my = _root.winfo_pointerxy() if _root else (0, 0)
+    _popup = BatteryPopup(_root, state, click_x=mx, click_y=my)
 
 
 def _on_settings(_icon=None, _item=None) -> None:
@@ -568,9 +573,6 @@ def main() -> None:
     threading.Thread(target=_poll,            daemon=True).start()
     threading.Thread(target=_watch_charging,  daemon=True).start()
     threading.Thread(target=_tray.run,        daemon=True).start()
-
-    # Show HUD immediately on startup
-    _hud.show(_state)
 
     # Start glow if already charging on launch
     if _glow and _state.has_battery and _state.is_charging:
