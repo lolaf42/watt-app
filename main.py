@@ -412,9 +412,10 @@ def _on_quit(_icon=None, _item=None) -> None:
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    global _tray, _root, _hud, _glow, _state
+    global _tray, _root, _hud, _glow, _state, _prev_state
 
     _state = get_battery_state()
+    _prev_state = _state   # prevents first poll from re-triggering glow
 
     _root = tk.Tk()
     _root.withdraw()

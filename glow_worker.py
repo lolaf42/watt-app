@@ -71,8 +71,8 @@ class GlowBorder:
     def _tick(self) -> bool:
         age = time.monotonic() - self._t0
         if age >= _SHOW_S + _FADE_S:
-            Gtk.main_quit()
-            return False
+            self.win.hide()
+            sys.exit(0)
         self.win.queue_draw()
         return True
 
