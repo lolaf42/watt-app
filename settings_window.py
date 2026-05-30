@@ -19,15 +19,18 @@ BTN = "#21262D"
 
 
 class SettingsWindow(tk.Toplevel):
-    def __init__(self, parent: tk.Tk, config: ConfigManager, on_save: Callable):
+    def __init__(self, parent: tk.Tk, config: ConfigManager,
+                 on_save: Callable, on_preview: Callable = None):
         super().__init__(parent)
         self.title("Watt — Settings")
         self.configure(bg=BG)
         self.resizable(False, False)
         self.attributes("-topmost", True)
 
-        self._config = config
-        self._on_save = on_save
+        self._config     = config
+        self._on_save    = on_save
+        self._on_preview = on_preview
+        self._preview_job: str | None = None
         self._data = copy.deepcopy(config.data)
 
         self._build()
@@ -77,8 +80,6 @@ class SettingsWindow(tk.Toplevel):
     # ── Build UI ──────────────────────────────────────────────────────────────
 
     def _build(self):
-        th = self._data["thresholds"]
-
         # ── Low thresholds ──────────────────────────────────────────────────
         self._section("Low Battery Thresholds (%)")
         low_wrap = tk.Frame(self, bg=BG)
@@ -129,6 +130,7 @@ class SettingsWindow(tk.Toplevel):
             val_lbl.pack(side="right")
             def _upd(v, lbl=val_lbl, f=fmt):
                 lbl.config(text=f.format(float(v)))
+                self._schedule_preview()
             sl = tk.Scale(row, variable=var, from_=from_, to=to,
                           orient="horizontal", bg=BG, fg=FG,
                           troughcolor=BG3, highlightthickness=0,
@@ -221,6 +223,25 @@ class SettingsWindow(tk.Toplevel):
     def _rm_high(self, v: int):
         self._data["thresholds"]["high"].remove(v)
         self._render_high()
+
+    # ── Live preview ─────────────────────────────────────────────────────────
+
+    def _schedule_preview(self):
+        if not self._on_preview:
+            return
+        if self._preview_job:
+            self.after_cancel(self._preview_job)
+        self._preview_job = self.after(350, self._do_preview)
+
+    def _do_preview(self):
+        self._preview_job = None
+        if self._on_preview:
+            self._on_preview({
+                "snake_speed":      self._v_speed.get(),
+                "line_width":       self._v_lw.get(),
+                "border_intensity": self._v_bint.get(),
+                "border_duration":  round(self._v_bdur.get(), 1),
+            })
 
     # ── Save ─────────────────────────────────────────────────────────────────
 

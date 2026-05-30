@@ -400,7 +400,8 @@ def _open_settings() -> None:
     if _settings_win and _settings_win.winfo_exists():
         _settings_win.lift()
         return
-    _settings_win = SettingsWindow(_root, _config, lambda: _alerts.reset())
+    _settings_win = SettingsWindow(_root, _config, lambda: _alerts.reset(),
+                                   lambda cfg: _glow.preview(cfg))
 
 
 def _on_quit(_icon=None, _item=None) -> None:
