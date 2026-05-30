@@ -349,6 +349,13 @@ def _poll() -> None:
             if _should_show_hud(new, _prev_state) and _hud:
                 _hud.show(new)
 
+            # Glow — start when charger is plugged in, stop when unplugged
+            if _glow:
+                was_charging = _prev_state.is_charging if _prev_state else False
+                if new.is_charging and not was_charging:
+                    _glow.show((0, 170, 0))
+                elif not new.is_charging and was_charging:
+                    _glow.hide()
 
             with _state_lock:
                 _state = new
@@ -430,6 +437,9 @@ def main() -> None:
     # Show HUD immediately on startup
     _hud.show(_state)
 
+    # Start glow if already charging on launch
+    if _glow and _state.has_battery and _state.is_charging:
+        _glow.show((0, 170, 0))
 
     logger.info("Watt started — %s", _state.status_text)
     try:
