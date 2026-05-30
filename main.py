@@ -11,6 +11,8 @@ import pystray
 from PIL import Image, ImageDraw
 
 from alerts import AlertManager
+import i18n
+from i18n import t
 from battery import BatteryState, get_battery_state
 from config import ConfigManager
 from hud import HudOverlay, charge_color
@@ -27,6 +29,7 @@ logger = logging.getLogger("watt")
 # ── App state ──────────────────────────────────────────────────────────────────
 
 _config = ConfigManager()
+i18n.set_lang(_config.data.get("language", "en"))
 _alerts = AlertManager(_config)
 _state: BatteryState = BatteryState()
 _state_lock = threading.Lock()
@@ -167,7 +170,7 @@ class BatteryPopup(tk.Toplevel):
         tk.Label(rf, text=f"{icon}  {s.status_text}",
                  bg=_BG, fg=accent, font=("Segoe UI", 13)).pack(anchor="e")
         if s.has_battery and s.seconds_remaining is not None:
-            suffix = "until full" if s.is_charging else "remaining"
+            suffix = t("popup.until_full") if s.is_charging else t("popup.remaining_lbl")
             tk.Label(rf, text=f"{s.time_remaining_text} {suffix}",
                      bg=_BG, fg=_DIM, font=("Segoe UI", 10)).pack(anchor="e")
 
@@ -198,7 +201,7 @@ class BatteryPopup(tk.Toplevel):
         if s.health_percent is not None:
             health_color = "#E3B341" if s.health_percent < 80 else "#3FB950"
             body = self._section("⚠" if s.health_percent < 80 else "✔",
-                                  "Battery Health", health_color)
+                                  t("popup.health"), health_color)
             f = tk.Frame(body, bg=_BG2)
             f.pack(fill="x")
             tk.Label(f, text=f"{s.health_percent:.0f}%  {s.health_label}",
@@ -209,10 +212,10 @@ class BatteryPopup(tk.Toplevel):
                 cf.pack(fill="x", anchor="e")
                 tk.Label(cf, text=f"{s.cycle_count:,}", bg=_BG2, fg=_DIM,
                           font=("Segoe UI", 10), anchor="e").pack(side="right")
-                tk.Label(cf, text="Cycle Count", bg=_BG2, fg=_DIM,
+                tk.Label(cf, text=t("popup.cycle"), bg=_BG2, fg=_DIM,
                           font=("Segoe UI", 9), anchor="e").pack(side="right", padx=4)
             if s.health_percent < 80:
-                tk.Label(body, text="Consider servicing your battery",
+                tk.Label(body, text=t("popup.service"),
                          bg=_BG2, fg=_DIM,
                          font=("Segoe UI", 10), anchor="w").pack(anchor="w", pady=(4, 0))
 
@@ -221,7 +224,7 @@ class BatteryPopup(tk.Toplevel):
             temp_color = ("#DC3232" if s.temperature_celsius >= 50
                           else "#FFA000" if s.temperature_celsius >= 40
                           else "#3FB950")
-            body = self._section("✔", "Temperature", temp_color)
+            body = self._section("✔", t("popup.temp"), temp_color)
             f = tk.Frame(body, bg=_BG2)
             f.pack(fill="x")
             lf = tk.Frame(f, bg=_BG2)
@@ -236,48 +239,48 @@ class BatteryPopup(tk.Toplevel):
             tk.Label(rf2, text=s.TemperatureStatus,
                      bg=_BG2, fg=temp_color,
                      font=("Segoe UI", 11, "bold")).pack(anchor="e")
-            tk.Label(rf2, text="Optimal performance" if s.temperature_celsius < 40
-                     else "High temperature", bg=_BG2, fg=_DIM,
+            tk.Label(rf2, text=t("popup.optimal") if s.temperature_celsius < 40
+                     else t("popup.high_temp"), bg=_BG2, fg=_DIM,
                      font=("Segoe UI", 9)).pack(anchor="e")
 
         # ── Power & Electrical ────────────────────────────────────────────────
         if s.voltage_mv is not None or s.power_watts is not None:
-            body = self._section("⚡", "Power & Electrical", "#3FB950")
+            body = self._section("⚡", t("popup.power"), "#3FB950")
             self._row2(body,
-                       "Power Usage",
+                       t("popup.power_usage"),
                        f"{s.power_watts:.1f} W" if s.power_watts is not None else "N/A",
                        "#FFFFFF",
-                       "Voltage",
+                       t("popup.voltage"),
                        f"{s.voltage_mv / 1000:.2f} V" if s.voltage_mv else "N/A",
                        "#FFFFFF")
-            charge_label = "Charging" if s.is_charging else "Discharging"
+            charge_label = t("popup.charging") if s.is_charging else t("popup.discharging")
             charge_color = "#3FB950" if s.is_charging else _DIM
             self._row2(body,
-                       "Current",
+                       t("popup.current"),
                        f"{s.current_ma:,} mA" if s.current_ma else "N/A",
                        "#FFFFFF",
                        charge_label,
-                       "Normal voltage",
+                       t("popup.normal_v"),
                        charge_color)
 
         # ── Capacity Details ──────────────────────────────────────────────────
         if s.remaining_mwh is not None:
-            body = self._section("🔋", "Capacity Details", "#58A6FF")
-            self._row(body, "Remaining",
+            body = self._section("🔋", t("popup.capacity"), "#58A6FF")
+            self._row(body, t("popup.remaining"),
                       f"{s.remaining_mwh / 1000:.3f} Wh", "#3FB950")
             if s.full_capacity_mwh:
-                self._row(body, "Current Full",
+                self._row(body, t("popup.curr_full"),
                           f"{s.full_capacity_mwh / 1000:.3f} Wh", "#58A6FF")
             if s.design_capacity_mwh:
-                self._row(body, "Design Capacity",
+                self._row(body, t("popup.design"),
                           f"{s.design_capacity_mwh / 1000:.3f} Wh", _DIM)
 
         self._sep()
 
         # ── Footer buttons ────────────────────────────────────────────────────
         for text, cmd, color in [
-            ("⚙  Settings...",    _on_settings, _FG),
-            ("⏻  Quit Watt",      _on_quit,     "#FF4444"),
+            (t("popup.settings"), _on_settings, _FG),
+            (t("popup.quit"),     _on_quit,     "#FF4444"),
         ]:
             btn = tk.Button(self, text=text, command=cmd,
                             bg=_BG, fg=color, relief="flat",
@@ -341,8 +344,8 @@ def _poll() -> None:
             # Tray icon + tooltip
             if _tray:
                 _tray.icon = make_tray_icon(new)
-                _tray.title = (f"Watt — {new.percent}% ({new.status_text})"
-                               if new.has_battery else "Watt — No battery")
+                _tray.title = (t("tray.title", pct=new.percent, status=new.status_text)
+                               if new.has_battery else t("tray.no_battery"))
 
             # HUD overlay
             if _should_show_hud(new, _prev_state) and _hud:
@@ -450,10 +453,10 @@ def main() -> None:
     _glow = ScreenGlow(_root, _config)
 
     menu = pystray.Menu(
-        pystray.MenuItem("Battery Details...", _on_details, default=True),
-        pystray.MenuItem("Settings...",        _on_settings),
+        pystray.MenuItem(t("tray.details"), _on_details, default=True),
+        pystray.MenuItem(t("tray.settings"), _on_settings),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem("Quit",               _on_quit),
+        pystray.MenuItem(t("tray.quit"), _on_quit),
     )
     _tray = pystray.Icon(
         "watt",

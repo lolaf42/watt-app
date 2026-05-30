@@ -5,6 +5,7 @@ from typing import Optional
 
 from battery import BatteryState
 from config import ConfigManager
+from i18n import t
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +36,11 @@ class AlertManager:
         # ── Plug / unplug ───────────────────────────────────────────────────
         if self._prev_plugged is not None and state.is_plugged != self._prev_plugged:
             if state.is_plugged and ac.get("plugged", True):
-                alerts.append(("Charger Connected", f"Battery at {state.percent}% — Charging"))
+                alerts.append((t("alert.connected"),
+                                t("alert.connected_msg", pct=state.percent)))
             elif not state.is_plugged and ac.get("unplugged", True):
-                alerts.append(("Charger Disconnected", f"Battery at {state.percent}%"))
+                alerts.append((t("alert.disconnected"),
+                                t("alert.disconnected_msg", pct=state.percent)))
         self._prev_plugged = state.is_plugged
 
         # ── Low thresholds (discharging below %) ────────────────────────────
@@ -45,9 +48,9 @@ class AlertManager:
             for t in sorted(th.get("low", []), reverse=True):
                 if state.percent <= t and t not in self._fired_low:
                     self._fired_low.add(t)
-                    sub = ("Connect charger immediately!" if state.percent <= 5
-                           else f"{state.time_remaining_text} remaining")
-                    alerts.append((f"Low Battery — {state.percent}%", sub))
+                    sub = (t("alert.low_critical") if state.percent <= 5
+                           else t("alert.low_time", time=state.time_remaining_text))
+                    alerts.append((t("alert.low", pct=state.percent), sub))
                 elif state.percent > t + HYSTERESIS:
                     self._fired_low.discard(t)
 
@@ -56,8 +59,8 @@ class AlertManager:
             for t in sorted(th.get("high", [])):
                 if state.percent >= t and t not in self._fired_high:
                     self._fired_high.add(t)
-                    alerts.append((f"Battery at {state.percent}%",
-                                   f"Consider unplugging to protect battery health"))
+                    alerts.append((t("alert.high", pct=state.percent),
+                                   t("alert.high_msg")))
                 elif state.percent < t - HYSTERESIS:
                     self._fired_high.discard(t)
 

@@ -10,6 +10,7 @@ from typing import Optional
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from battery import BatteryState
+from i18n import t
 
 # ── Fonts ──────────────────────────────────────────────────────────────────────
 
@@ -361,17 +362,17 @@ class HudOverlay:
 # ── BatteryState display helpers ───────────────────────────────────────────────
 
 def hud_title(state):
-    if not state.has_battery: return "No Battery"
-    if state.is_full:         return "Fully Charged"
-    if state.is_charging:     return f"Charging — {state.percent}%"
-    return f"{state.percent}% Remaining"
+    if not state.has_battery: return t("hud.no_battery")
+    if state.is_full:         return t("hud.fully_charged")
+    if state.is_charging:     return t("hud.charging", pct=state.percent)
+    return t("hud.remaining", pct=state.percent)
 
 def hud_subtitle(state):
-    if not state.has_battery:                         return "No battery detected"
-    if state.is_full:                                 return "Battery is full"
-    if not state.is_charging and state.percent <= 5:  return "Connect charger immediately"
-    if state.seconds_remaining is None:               return "Calculating..."
-    label = "until full" if state.is_charging else "until empty"
+    if not state.has_battery:                         return t("hud.sub.no_battery")
+    if state.is_full:                                 return t("hud.sub.full")
+    if not state.is_charging and state.percent <= 5:  return t("hud.sub.critical")
+    if state.seconds_remaining is None:               return t("hud.sub.calculating")
+    label = t("hud.sub.until_full") if state.is_charging else t("hud.sub.until_empty")
     return f"{state.time_remaining_text} {label}"
 
 BatteryState.HUD_title    = property(hud_title)

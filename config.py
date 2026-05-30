@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT: dict = {
+    "language": "en",
     "poll_interval": 30,
     "thresholds": {
         "low": [5, 10, 20],

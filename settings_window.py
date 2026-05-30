@@ -7,6 +7,7 @@ from typing import Callable
 
 from config import ConfigManager
 from autostart import set_autostart
+from i18n import t, LANG_NAMES, get_lang, set_lang
 
 BG = "#0D1117"
 BG2 = "#161B22"
@@ -23,7 +24,7 @@ class SettingsWindow(tk.Toplevel):
                  on_hud_preview: Callable = None,
                  on_pos_preview: Callable = None):
         super().__init__(parent)
-        self.title("Watt — Settings")
+        self.title(t("settings.title"))
         self.configure(bg=BG)
         self.resizable(False, False)
         self.attributes("-topmost", True)
@@ -89,81 +90,100 @@ class SettingsWindow(tk.Toplevel):
         gc = self._data.get("glow", {})
 
         # ── HUD Window ──────────────────────────────────────────────────────
-        self._section("HUD Window")
+        self._section(t("settings.hud"))
         hud_f = tk.Frame(self, bg=BG)
         hud_f.pack(fill="x", padx=24, pady=4)
 
         self._v_pos_v = tk.IntVar(value=hc.get("position_v", 5))
-        self._slider_row(hud_f, "Position vertikal (%):",
+        self._slider_row(hud_f, t("settings.pos_v"),
                          self._v_pos_v, 0, 100, "{:.0f} %", preview="pos")
 
         self._v_pos_h = tk.IntVar(value=hc.get("position_h", 50))
-        self._slider_row(hud_f, "Position horizontal (%):",
+        self._slider_row(hud_f, t("settings.pos_h"),
                          self._v_pos_h, 0, 100, "{:.0f} %", preview="pos")
 
         self._v_anim = tk.StringVar(value=hc.get("animation", "bounce"))
         anim_row = tk.Frame(hud_f, bg=BG)
         anim_row.pack(fill="x", pady=4)
-        tk.Label(anim_row, text="Animation:", bg=BG, fg=FG,
+        tk.Label(anim_row, text=t("settings.animation"), bg=BG, fg=FG,
                  font=("Segoe UI", 10), width=26, anchor="w").pack(side="left")
-        for key, label in [("bounce","Aufspringen"),("fade","Einblenden"),("none","Kein")]:
-            tk.Radiobutton(anim_row, text=label, variable=self._v_anim, value=key,
+        for key, lbl_key in [("bounce","settings.bounce"),
+                              ("fade","settings.fade"),
+                              ("none","settings.none")]:
+            tk.Radiobutton(anim_row, text=t(lbl_key), variable=self._v_anim, value=key,
                            bg=BG, fg=FG, selectcolor=BG2,
                            activebackground=BG, activeforeground=FG,
                            font=("Segoe UI", 10)).pack(side="left", padx=6)
 
         self._v_anim_speed = tk.DoubleVar(value=hc.get("anim_speed", 1.0))
-        self._slider_row(hud_f, "Animationsgeschwindigkeit:",
+        self._slider_row(hud_f, t("settings.anim_speed"),
                          self._v_anim_speed, 0.25, 3.0, "{:.2f}×", preview="hud")
 
         self._v_speed = tk.IntVar(value=gc.get("snake_speed", 600))
-        self._slider_row(hud_f, "Snake-Geschwindigkeit (px/s):",
+        self._slider_row(hud_f, t("settings.snake_speed"),
                          self._v_speed, 200, 1500, "{:.0f} px/s", preview="hud")
 
         self._v_lw = tk.IntVar(value=gc.get("line_width_pct", 120))
-        self._slider_row(hud_f, "Liniendicke:",
+        self._slider_row(hud_f, t("settings.line_width"),
                          self._v_lw, 30, 360, "{:.0f} %", preview="hud")
 
-        # ── Glow Animation ──────────────────────────────────────────────────
-        self._section("Bildschirmrand-Glow")
+        # ── Glow ────────────────────────────────────────────────────────────
+        self._section(t("settings.glow"))
         glow_f = tk.Frame(self, bg=BG)
         glow_f.pack(fill="x", padx=24, pady=4)
 
         self._v_bint = tk.IntVar(value=gc.get("border_intensity", 100))
-        self._slider_row(glow_f, "Intensität (%):",
+        self._slider_row(glow_f, t("settings.intensity"),
                          self._v_bint, 0, 100, "{:.0f} %")
 
         self._v_bdur = tk.DoubleVar(value=gc.get("border_duration", 3.0))
-        self._slider_row(glow_f, "Dauer (s):",
+        self._slider_row(glow_f, t("settings.duration"),
                          self._v_bdur, 0.5, 8.0, "{:.1f} s")
 
         # ── General ─────────────────────────────────────────────────────────
-        self._section("Allgemein")
+        self._section(t("settings.general"))
         gf = tk.Frame(self, bg=BG)
         gf.pack(fill="x", padx=24, pady=4)
 
         pf = tk.Frame(gf, bg=BG)
         pf.pack(fill="x", pady=2)
-        tk.Label(pf, text="Poll-Intervall (Sek.):", bg=BG, fg=FG,
+        tk.Label(pf, text=t("settings.poll"), bg=BG, fg=FG,
                  font=("Segoe UI", 10)).pack(side="left")
         self._v_poll = tk.StringVar(value=str(self._data.get("poll_interval", 30)))
         tk.Entry(pf, textvariable=self._v_poll, width=6, bg=BG2, fg=FG,
                  insertbackground=FG, relief="flat").pack(side="left", padx=8)
 
         self._v_autostart = tk.BooleanVar(value=self._data.get("autostart", False))
-        tk.Checkbutton(gf, text="Automatisch beim Anmelden starten",
+        tk.Checkbutton(gf, text=t("settings.autostart"),
                        variable=self._v_autostart,
                        bg=BG, fg=FG, selectcolor=BG2,
                        activebackground=BG, activeforeground=FG,
                        font=("Segoe UI", 10)).pack(anchor="w", pady=2)
 
+        # Language selector
+        lf = tk.Frame(gf, bg=BG)
+        lf.pack(fill="x", pady=(6, 2))
+        tk.Label(lf, text=t("settings.language"), bg=BG, fg=FG,
+                 font=("Segoe UI", 10)).pack(side="left")
+        self._v_lang = tk.StringVar(value=self._data.get("language", "en"))
+        for code, name in LANG_NAMES.items():
+            tk.Radiobutton(lf, text=name, variable=self._v_lang, value=code,
+                           bg=BG, fg=FG, selectcolor=BG2,
+                           activebackground=BG, activeforeground=FG,
+                           font=("Segoe UI", 10)).pack(side="left", padx=6)
+        self._restart_lbl = tk.Label(gf, text="", bg=BG, fg="#888888",
+                                     font=("Segoe UI", 9, "italic"))
+        self._restart_lbl.pack(anchor="w")
+        self._v_lang.trace_add("write", lambda *_: self._restart_lbl.config(
+            text=t("settings.restart") if self._v_lang.get() != get_lang() else ""))
+
         # ── Buttons ─────────────────────────────────────────────────────────
         bf = tk.Frame(self, bg=BG)
         bf.pack(fill="x", padx=16, pady=(12, 16))
-        tk.Button(bf, text="Abbrechen", command=self._cancel,
+        tk.Button(bf, text=t("settings.cancel"), command=self._cancel,
                   bg=BTN, fg=FG, relief="flat", padx=16, pady=6,
                   cursor="hand2").pack(side="right", padx=(4, 0))
-        tk.Button(bf, text="Speichern", command=self._save,
+        tk.Button(bf, text=t("settings.save"), command=self._save,
                   bg=GREEN, fg="#000000", relief="flat", padx=16, pady=6,
                   cursor="hand2", font=("Segoe UI", 10, "bold")).pack(side="right")
 
@@ -224,6 +244,7 @@ class SettingsWindow(tk.Toplevel):
 
         self._data["poll_interval"] = poll
         self._data["autostart"]     = self._v_autostart.get()
+        self._data["language"]      = self._v_lang.get()
         self._data["hud"] = {
             "position_v":  self._v_pos_v.get(),
             "position_h":  self._v_pos_h.get(),
@@ -242,5 +263,9 @@ class SettingsWindow(tk.Toplevel):
             set_autostart(self._data["autostart"])
         except Exception:
             pass
+        lang_changed = self._v_lang.get() != get_lang()
         self._on_save()
         self.destroy()
+        if lang_changed:
+            import os, sys
+            os.execv(sys.executable, [sys.executable] + sys.argv)
