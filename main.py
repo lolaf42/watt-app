@@ -87,21 +87,25 @@ def make_tray_icon(state: BatteryState) -> Image.Image:
 
 # ── Battery popup window ───────────────────────────────────────────────────────
 
-_BG  = "#0D1117"
-_BG2 = "#161B22"
-_SEP = "#21262D"
-_FG  = "#C9D1D9"
-_DIM = "#8B949E"
-
-
 class BatteryPopup(tk.Toplevel):
+    W    = 230
+    BGD  = "#0B0D10"
+    BGC  = "#13171E"
+    BGC2 = "#1A1F28"
+    FGW  = "#FFFFFF"
+    DIM  = "#6B7585"
+    GRN  = "#3FB950"
+    YLW  = "#E3B341"
+    BLU  = "#58A6FF"
+    RED  = "#DC3232"
+    SEP  = "#1E2530"
 
     def __init__(self, parent: tk.Tk, state: BatteryState):
         super().__init__(parent)
         self.overrideredirect(True)
         self.attributes("-topmost", True)
-        self.configure(bg=_BG)
-        self.resizable(False, False)
+        self.configure(bg=self.BGD)
+        self.attributes("-alpha", 0.96)
         self._build(state)
         self.update_idletasks()
         sw = self.winfo_screenwidth()
@@ -112,183 +116,210 @@ class BatteryPopup(tk.Toplevel):
         self.bind("<FocusOut>", lambda _e: self.destroy())
         self.focus_force()
 
-    def _sep(self) -> None:
-        tk.Frame(self, bg=_SEP, height=1).pack(fill="x", pady=3)
+    # ── Helpers ───────────────────────────────────────────────────────────────
 
-    def _section(self, icon: str, title: str, color: str) -> tk.Frame:
-        f = tk.Frame(self, bg=_BG2)
-        f.pack(fill="x", padx=10, pady=3)
-        tk.Label(f, text=f"{icon}  {title}", bg=_BG2, fg=color,
-                 font=("Segoe UI", 11, "bold"), anchor="w",
-                 padx=10, pady=6).pack(fill="x")
-        body = tk.Frame(f, bg=_BG2)
+    def _div(self, pady=0):
+        tk.Frame(self, bg=self.SEP, height=1).pack(fill="x", pady=pady)
+
+    def _card(self, icon, icon_col, title) -> tk.Frame:
+        outer = tk.Frame(self, bg=self.BGC)
+        outer.pack(fill="x", padx=8, pady=3)
+        hdr = tk.Frame(outer, bg=self.BGC)
+        hdr.pack(fill="x", padx=10, pady=(8, 4))
+        tk.Label(hdr, text=icon, bg=self.BGC, fg=icon_col,
+                 font=("Segoe UI", 10)).pack(side="left")
+        tk.Label(hdr, text=f"  {title}", bg=self.BGC, fg=self.FGW,
+                 font=("Segoe UI", 9, "bold")).pack(side="left")
+        body = tk.Frame(outer, bg=self.BGC)
         body.pack(fill="x", padx=10, pady=(0, 8))
         return body
 
-    def _row2(self, parent: tk.Frame,
-              lbl1: str, val1: str, col1: str,
-              lbl2: str, val2: str, col2: str) -> None:
-        f = tk.Frame(parent, bg=_BG2)
+    def _kv(self, parent, key, val, vc=None):
+        f = tk.Frame(parent, bg=parent["bg"])
         f.pack(fill="x", pady=1)
-        lc = tk.Frame(f, bg=_BG2)
-        lc.pack(side="left", expand=True, fill="x")
-        rc = tk.Frame(f, bg=_BG2)
-        rc.pack(side="right", expand=True, fill="x")
-        tk.Label(lc, text=lbl1, bg=_BG2, fg=_DIM,
-                 font=("Segoe UI", 10), anchor="w").pack(anchor="w")
-        tk.Label(lc, text=val1, bg=_BG2, fg=col1,
-                 font=("Segoe UI", 16, "bold"), anchor="w").pack(anchor="w")
-        tk.Label(rc, text=lbl2, bg=_BG2, fg=_DIM,
-                 font=("Segoe UI", 10), anchor="e").pack(anchor="e")
-        tk.Label(rc, text=val2, bg=_BG2, fg=col2,
-                 font=("Segoe UI", 16, "bold"), anchor="e").pack(anchor="e")
+        tk.Label(f, text=key, bg=parent["bg"], fg=self.DIM,
+                 font=("Segoe UI", 8), anchor="w").pack(side="left")
+        tk.Label(f, text=val, bg=parent["bg"], fg=vc or self.FGW,
+                 font=("Segoe UI", 9, "bold"), anchor="e").pack(side="right")
 
-    def _row(self, parent: tk.Frame, label: str, value: str,
-             val_color: str = _FG) -> None:
-        f = tk.Frame(parent, bg=_BG2)
-        f.pack(fill="x", pady=1)
-        tk.Label(f, text=label, bg=_BG2, fg=_DIM,
-                 font=("Segoe UI", 10), anchor="w").pack(side="left")
-        tk.Label(f, text=value, bg=_BG2, fg=val_color,
-                 font=("Segoe UI", 10, "bold"), anchor="e").pack(side="right")
+    def _kv2(self, parent, k1, v1, c1, k2, v2, c2):
+        f = tk.Frame(parent, bg=parent["bg"])
+        f.pack(fill="x", pady=3)
+        lf = tk.Frame(f, bg=parent["bg"])
+        lf.pack(side="left", expand=True, fill="x")
+        rf = tk.Frame(f, bg=parent["bg"])
+        rf.pack(side="right", expand=True, fill="x")
+        tk.Label(lf, text=k1, bg=parent["bg"], fg=self.DIM,
+                 font=("Segoe UI", 8), anchor="w").pack(anchor="w")
+        tk.Label(lf, text=v1, bg=parent["bg"], fg=c1,
+                 font=("Segoe UI", 13, "bold")).pack(anchor="w")
+        tk.Label(rf, text=k2, bg=parent["bg"], fg=self.DIM,
+                 font=("Segoe UI", 8), anchor="e").pack(anchor="e")
+        tk.Label(rf, text=v2, bg=parent["bg"], fg=c2,
+                 font=("Segoe UI", 13, "bold")).pack(anchor="e")
+
+    # ── Build ─────────────────────────────────────────────────────────────────
 
     def _build(self, s: BatteryState) -> None:
-        accent = ("#00CC00" if (s.is_charging or s.is_full)
-                  else "#DC3232" if s.percent <= 20
+        import base64, io
+        from PIL import Image as PI, ImageDraw as PD
+
+        accent = (self.GRN if (s.is_charging or s.is_full)
+                  else self.RED if s.percent <= 20
                   else "#FFA000" if s.percent <= 50
-                  else "#00CC00")
+                  else self.GRN)
 
         # ── Header ────────────────────────────────────────────────────────────
-        hf = tk.Frame(self, bg=_BG)
-        hf.pack(fill="x", padx=14, pady=(14, 6))
-        tk.Label(hf, text=f"{s.percent}%" if s.has_battery else "N/A",
-                 bg=_BG, fg=accent,
-                 font=("Segoe UI", 42, "bold")).pack(side="left")
-        rf = tk.Frame(hf, bg=_BG)
-        rf.pack(side="right", anchor="s", pady=10)
+        hf = tk.Frame(self, bg=self.BGD)
+        hf.pack(fill="x", padx=14, pady=(16, 4))
+
+        # Large % number
+        nr = tk.Frame(hf, bg=self.BGD)
+        nr.pack(anchor="w")
+        tk.Label(nr, text=f"{s.percent}" if s.has_battery else "—",
+                 bg=self.BGD, fg=accent,
+                 font=("Segoe UI", 46, "bold")).pack(side="left")
+        tk.Label(nr, text=" %", bg=self.BGD, fg=accent,
+                 font=("Segoe UI", 20)).pack(side="left", anchor="s", pady=14)
+
+        # Status
         icon = "⚡" if s.is_charging else ("🪫" if s.percent <= 10 else "🔋")
-        tk.Label(rf, text=f"{icon}  {s.status_text}",
-                 bg=_BG, fg=accent, font=("Segoe UI", 13)).pack(anchor="e")
+        status_str = (t("status.charging") if s.is_charging else
+                      t("status.full") if s.is_full else t("status.discharging"))
+        sr = tk.Frame(hf, bg=self.BGD)
+        sr.pack(anchor="w")
+        tk.Label(sr, text=f"{icon}  {status_str}", bg=self.BGD, fg=accent,
+                 font=("Segoe UI", 12)).pack(side="left")
+
+        # Time
         if s.has_battery and s.seconds_remaining is not None:
-            suffix = t("popup.until_full") if s.is_charging else t("popup.remaining_lbl")
-            tk.Label(rf, text=f"{s.time_remaining_text} {suffix}",
-                     bg=_BG, fg=_DIM, font=("Segoe UI", 10)).pack(anchor="e")
+            suf = t("popup.until_full") if s.is_charging else t("popup.remaining_lbl")
+            tk.Label(hf, text=f"{s.time_remaining_text} {suf}",
+                     bg=self.BGD, fg=self.DIM, font=("Segoe UI", 9)).pack(anchor="w")
 
         # Progress bar
-        import base64, io
-        from PIL import Image as PImage, ImageDraw as PDraw
-        bar_w = 320
-        bar_h = 6
-        bar_img = PImage.new("RGB", (bar_w, bar_h), (30, 38, 41))
+        bw = self.W - 28
+        bi  = PI.new("RGB", (bw, 5), (22, 28, 36))
         if s.has_battery and s.percent > 0:
-            r, g, b = (int(accent[1:3], 16),
-                       int(accent[3:5], 16),
-                       int(accent[5:7], 16))
-            fill = int(bar_w * s.percent / 100)
-            for x in range(fill):
-                for y in range(bar_h):
-                    bar_img.putpixel((x, y), (r, g, b))
+            rv, gv, bv = int(accent[1:3],16), int(accent[3:5],16), int(accent[5:7],16)
+            pd = PD.Draw(bi)
+            pd.rounded_rectangle([0,0,int(bw*s.percent/100)-1,4], radius=2, fill=(rv,gv,bv))
         buf = io.BytesIO()
-        bar_img.save(buf, format="PNG")
-        bar_photo = tk.PhotoImage(data=base64.b64encode(buf.getvalue()))
-        bar_lbl = tk.Label(self, image=bar_photo, bg=_BG, borderwidth=0)
-        bar_lbl.image = bar_photo
-        bar_lbl.pack(padx=14, pady=(0, 8))
+        bi.save(buf, format="PNG")
+        ph = tk.PhotoImage(data=base64.b64encode(buf.getvalue()))
+        bar = tk.Label(self, image=ph, bg=self.BGD, borderwidth=0)
+        bar.image = ph
+        bar.pack(padx=14, pady=(6, 10))
 
-        self._sep()
+        # ── Battery Information separator ─────────────────────────────────────
+        self._div()
+        inf_f = tk.Frame(self, bg=self.BGD)
+        inf_f.pack(fill="x", padx=10, pady=(6, 2))
+        tk.Label(inf_f, text="ⓘ", bg=self.BGD, fg=self.BLU,
+                 font=("Segoe UI", 9)).pack(side="left")
+        tk.Label(inf_f, text="  Battery Information", bg=self.BGD, fg=self.DIM,
+                 font=("Segoe UI", 8, "bold")).pack(side="left")
+        tk.Label(inf_f, text="∧", bg=self.BGD, fg=self.DIM,
+                 font=("Segoe UI", 8)).pack(side="right")
+        self._div()
 
         # ── Battery Health ────────────────────────────────────────────────────
         if s.health_percent is not None:
-            health_color = "#E3B341" if s.health_percent < 80 else "#3FB950"
-            body = self._section("⚠" if s.health_percent < 80 else "✔",
-                                  t("popup.health"), health_color)
-            f = tk.Frame(body, bg=_BG2)
-            f.pack(fill="x")
-            tk.Label(f, text=f"{s.health_percent:.0f}%  {s.health_label}",
-                     bg=_BG2, fg=health_color,
-                     font=("Segoe UI", 20, "bold")).pack(side="left")
+            hc  = self.YLW if s.health_percent < 80 else self.GRN
+            ico = "⚠" if s.health_percent < 80 else "●"
+            body = self._card(ico, hc, t("popup.health"))
+
+            hr = tk.Frame(body, bg=self.BGC)
+            hr.pack(fill="x")
+            lf = tk.Frame(hr, bg=self.BGC)
+            lf.pack(side="left")
+            tk.Label(lf, text=f"{s.health_percent:.0f}%",
+                     bg=self.BGC, fg=hc, font=("Segoe UI", 22, "bold")).pack(anchor="w")
+            tk.Label(lf, text=s.health_label,
+                     bg=self.BGC, fg=hc, font=("Segoe UI", 9)).pack(anchor="w")
+
             if s.cycle_count is not None:
-                cf = tk.Frame(body, bg=_BG2)
-                cf.pack(fill="x", anchor="e")
-                tk.Label(cf, text=f"{s.cycle_count:,}", bg=_BG2, fg=_DIM,
-                          font=("Segoe UI", 10), anchor="e").pack(side="right")
-                tk.Label(cf, text=t("popup.cycle"), bg=_BG2, fg=_DIM,
-                          font=("Segoe UI", 9), anchor="e").pack(side="right", padx=4)
+                rf2 = tk.Frame(hr, bg=self.BGC)
+                rf2.pack(side="right", anchor="e")
+                tk.Label(rf2, text=f"{s.cycle_count:,}",
+                         bg=self.BGC, fg=self.FGW,
+                         font=("Segoe UI", 12, "bold")).pack(anchor="e")
+                tk.Label(rf2, text=t("popup.cycle"),
+                         bg=self.BGC, fg=self.DIM,
+                         font=("Segoe UI", 8)).pack(anchor="e")
+
             if s.health_percent < 80:
                 tk.Label(body, text=t("popup.service"),
-                         bg=_BG2, fg=_DIM,
-                         font=("Segoe UI", 10), anchor="w").pack(anchor="w", pady=(4, 0))
+                         bg=self.BGC, fg=self.DIM,
+                         font=("Segoe UI", 8), wraplength=self.W-40,
+                         anchor="w").pack(anchor="w", pady=(4, 0))
 
         # ── Temperature ───────────────────────────────────────────────────────
         if s.temperature_celsius is not None:
-            temp_color = ("#DC3232" if s.temperature_celsius >= 50
-                          else "#FFA000" if s.temperature_celsius >= 40
-                          else "#3FB950")
-            body = self._section("✔", t("popup.temp"), temp_color)
-            f = tk.Frame(body, bg=_BG2)
-            f.pack(fill="x")
-            lf = tk.Frame(f, bg=_BG2)
+            tc = (self.RED if s.temperature_celsius >= 50
+                  else "#FFA000" if s.temperature_celsius >= 40 else self.GRN)
+            body = self._card("🌡", tc, t("popup.temp"))
+            tr = tk.Frame(body, bg=self.BGC)
+            tr.pack(fill="x")
+            lf = tk.Frame(tr, bg=self.BGC)
             lf.pack(side="left")
             tk.Label(lf, text=f"{s.temperature_celsius:.1f}°C",
-                     bg=_BG2, fg=temp_color,
-                     font=("Segoe UI", 20, "bold")).pack(anchor="w")
-            tk.Label(lf, text=f"{s.temperature_celsius * 9/5 + 32:.1f}°F",
-                     bg=_BG2, fg=_DIM, font=("Segoe UI", 10)).pack(anchor="w")
-            rf2 = tk.Frame(f, bg=_BG2)
+                     bg=self.BGC, fg=tc, font=("Segoe UI", 20, "bold")).pack(anchor="w")
+            tk.Label(lf, text=f"{s.temperature_celsius*9/5+32:.1f}°F",
+                     bg=self.BGC, fg=self.DIM, font=("Segoe UI", 9)).pack(anchor="w")
+            rf2 = tk.Frame(tr, bg=self.BGC)
             rf2.pack(side="right", anchor="e")
-            tk.Label(rf2, text=s.TemperatureStatus,
-                     bg=_BG2, fg=temp_color,
-                     font=("Segoe UI", 11, "bold")).pack(anchor="e")
-            tk.Label(rf2, text=t("popup.optimal") if s.temperature_celsius < 40
-                     else t("popup.high_temp"), bg=_BG2, fg=_DIM,
-                     font=("Segoe UI", 9)).pack(anchor="e")
+            sc = self.GRN if s.temperature_celsius < 40 else "#FFA000"
+            tk.Label(rf2, text="● Normal" if s.temperature_celsius < 40 else "● High",
+                     bg=self.BGC, fg=sc, font=("Segoe UI", 10, "bold")).pack(anchor="e")
+            tk.Label(rf2,
+                     text=t("popup.optimal") if s.temperature_celsius < 40 else t("popup.high_temp"),
+                     bg=self.BGC, fg=self.DIM, font=("Segoe UI", 8)).pack(anchor="e")
 
         # ── Power & Electrical ────────────────────────────────────────────────
         if s.voltage_mv is not None or s.power_watts is not None:
-            body = self._section("⚡", t("popup.power"), "#3FB950")
-            self._row2(body,
-                       t("popup.power_usage"),
-                       f"{s.power_watts:.1f} W" if s.power_watts is not None else "N/A",
-                       "#FFFFFF",
-                       t("popup.voltage"),
-                       f"{s.voltage_mv / 1000:.2f} V" if s.voltage_mv else "N/A",
-                       "#FFFFFF")
-            charge_label = t("popup.charging") if s.is_charging else t("popup.discharging")
-            charge_color = "#3FB950" if s.is_charging else _DIM
-            self._row2(body,
-                       t("popup.current"),
-                       f"{s.current_ma:,} mA" if s.current_ma else "N/A",
-                       "#FFFFFF",
-                       charge_label,
-                       t("popup.normal_v"),
-                       charge_color)
+            body = self._card("⚡", self.GRN, t("popup.power"))
+            self._kv2(body,
+                t("popup.power_usage"),
+                f"{s.power_watts:.1f} W" if s.power_watts is not None else "N/A",
+                self.FGW,
+                t("popup.voltage"),
+                f"{s.voltage_mv/1000:.2f} V" if s.voltage_mv else "N/A",
+                self.FGW)
+            cc = self.GRN if s.is_charging else self.DIM
+            self._kv2(body,
+                t("popup.current"),
+                f"{s.current_ma:,} mA" if s.current_ma else "N/A",
+                self.FGW,
+                t("popup.charging") if s.is_charging else t("popup.discharging"),
+                t("popup.normal_v"),
+                cc)
 
         # ── Capacity Details ──────────────────────────────────────────────────
         if s.remaining_mwh is not None:
-            body = self._section("🔋", t("popup.capacity"), "#58A6FF")
-            self._row(body, t("popup.remaining"),
-                      f"{s.remaining_mwh / 1000:.3f} Wh", "#3FB950")
+            body = self._card("🔋", self.BLU, t("popup.capacity"))
+            self._kv(body, t("popup.remaining"),
+                     f"{s.remaining_mwh/1000:.3f} Wh", self.GRN)
             if s.full_capacity_mwh:
-                self._row(body, t("popup.curr_full"),
-                          f"{s.full_capacity_mwh / 1000:.3f} Wh", "#58A6FF")
+                self._kv(body, t("popup.curr_full"),
+                         f"{s.full_capacity_mwh/1000:.3f} Wh", self.BLU)
             if s.design_capacity_mwh:
-                self._row(body, t("popup.design"),
-                          f"{s.design_capacity_mwh / 1000:.3f} Wh", _DIM)
+                self._kv(body, t("popup.design"),
+                         f"{s.design_capacity_mwh/1000:.3f} Wh", self.DIM)
 
-        self._sep()
-
-        # ── Footer buttons ────────────────────────────────────────────────────
-        for text, cmd, color in [
-            (t("popup.settings"), _on_settings, _FG),
-            (t("popup.quit"),     _on_quit,     "#FF4444"),
+        # ── Footer ────────────────────────────────────────────────────────────
+        tk.Frame(self, bg=self.SEP, height=1).pack(fill="x", pady=(8, 0))
+        for txt, cmd, col in [
+            (t("popup.settings"), _on_settings, self.FGW),
+            (t("popup.quit"),     _on_quit,     self.RED),
         ]:
-            btn = tk.Button(self, text=text, command=cmd,
-                            bg=_BG, fg=color, relief="flat",
-                            font=("Segoe UI", 11), anchor="w",
-                            padx=14, pady=8, cursor="hand2",
-                            activebackground=_BG2, activeforeground=color)
+            btn = tk.Button(self, text=txt, command=cmd,
+                            bg=self.BGD, fg=col, relief="flat",
+                            font=("Segoe UI", 10), anchor="w",
+                            padx=14, pady=7, cursor="hand2",
+                            activebackground=self.BGC2, activeforeground=col)
             btn.pack(fill="x")
-            tk.Frame(self, bg=_SEP, height=1).pack(fill="x")
+            tk.Frame(self, bg=self.SEP, height=1).pack(fill="x")
 
 
 # Add computed display properties to BatteryState
