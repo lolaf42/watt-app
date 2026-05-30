@@ -354,10 +354,8 @@ def _poll() -> None:
                 def _glow_color(s: BatteryState) -> Optional[tuple]:
                     if not s.has_battery:
                         return None
-                    if s.is_charging or s.is_full:
+                    if s.is_charging:
                         return (0, 170, 0)
-                    if s.percent <= 10:
-                        return (180, 30, 30)
                     return None
                 old_c = _glow_color(_prev_state) if _prev_state else None
                 new_c = _glow_color(new)
@@ -444,12 +442,9 @@ def main() -> None:
     # Show HUD immediately on startup
     _hud.show(_state)
 
-    # Show glow immediately if battery condition warrants it
-    if _state.has_battery:
-        if _state.is_charging or _state.is_full:
-            _glow.show((0, 170, 0))
-        elif _state.percent <= 10:
-            _glow.show((180, 30, 30))
+    # Show glow immediately if currently charging
+    if _glow and _state.has_battery and _state.is_charging:
+        _glow.show((0, 170, 0))
 
     logger.info("Watt started — %s", _state.status_text)
     try:

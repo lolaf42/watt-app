@@ -215,7 +215,7 @@ def hud_title(state: BatteryState) -> str:
     if state.is_full:
         return "Fully Charged"
     if state.is_charging:
-        return f"{state.percent}% Charged"
+        return f"Charging — {state.percent}%"
     return f"{state.percent}% Remaining"
 
 
