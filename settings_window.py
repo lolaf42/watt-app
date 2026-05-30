@@ -117,6 +117,15 @@ class SettingsWindow(tk.Toplevel):
                          [("Aufspringen", "bounce"), ("Einblenden", "fade"),
                           ("Batterie-Füllung", "fill"), ("Kein", "none")])
 
+        gc = self._data.get("glow", {})
+        self._v_speed = tk.IntVar(value=gc.get("snake_speed", 600))
+        self._slider_row(hud_f, "Snake-Geschwindigkeit (px/s):",
+                         self._v_speed, 200, 1500, "{:.0f} px/s")
+
+        self._v_lw = tk.IntVar(value=gc.get("line_width", 4))
+        self._slider_row(hud_f, "Liniendicke (px):",
+                         self._v_lw, 1, 12, "{:.0f} px")
+
         # ── Glow Animation ──────────────────────────────────────────────────
         self._section("Glow Animation")
         glow_f = tk.Frame(self, bg=BG)
@@ -197,6 +206,8 @@ class SettingsWindow(tk.Toplevel):
             "animation":  self._v_anim.get(),
         }
         self._data["glow"] = {
+            "snake_speed":      self._v_speed.get(),
+            "line_width":       self._v_lw.get(),
             "border_intensity": self._v_bint.get(),
             "border_duration":  round(self._v_bdur.get(), 1),
         }

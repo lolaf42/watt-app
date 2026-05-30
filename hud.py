@@ -129,24 +129,23 @@ def _draw_charge_border(d: ImageDraw.ImageDraw, percent: int) -> None:
         d.line(pts, fill=(*color, 180), width=4)
 
 
-def _draw_snake(d: ImageDraw.ImageDraw, snake_progress: float, percent: int) -> None:
+def _draw_snake(d: ImageDraw.ImageDraw, snake_progress: float,
+                percent: int, line_width: int = 4) -> None:
     """Animated snake growing from 0 to full perimeter, drawn over charge border."""
     if snake_progress <= 0:
         return
-    color = charge_color(percent)
+    color  = charge_color(percent)
     bright = tuple(min(c + 60, 255) for c in color)
     perim  = _pill_perim(W, H, R)
     target = perim * min(snake_progress, 1.0)
     pts    = _border_pts(target)
     if len(pts) < 2:
         return
-    # Outer glow
-    d.line(pts, fill=(*color, 50), width=10)
-    # Core
-    d.line(pts, fill=(*color, 220), width=4)
-    # Bright tip
+    d.line(pts, fill=(*color, 50),  width=line_width * 3)  # outer glow
+    d.line(pts, fill=(*color, 220), width=line_width)       # core
     hx, hy = pts[-1]
-    d.ellipse([hx - 4, hy - 4, hx + 4, hy + 4], fill=(*bright, 255))
+    r = max(2, line_width // 2 + 1)
+    d.ellipse([hx - r, hy - r, hx + r, hy + r], fill=(*bright, 255))
 
 
 def _draw_battery_icon(d, cx, cy, percent, is_charging, color):
@@ -169,7 +168,8 @@ def _draw_battery_icon(d, cx, cy, percent, is_charging, color):
         d.polygon(bolt, fill=(255, 240, 60, 255))
 
 
-def make_pill_image(state: BatteryState, snake_progress: float = 0.0) -> Image.Image:
+def make_pill_image(state: BatteryState, snake_progress: float = 0.0,
+                    line_width: int = 4) -> Image.Image:
     color = _status_color(state)
 
     img = Image.new("RGBA", (W, H), (*_CHROMA, 255))
@@ -179,12 +179,10 @@ def make_pill_image(state: BatteryState, snake_progress: float = 0.0) -> Image.I
     d.rounded_rectangle([0, 0, W - 1, H - 1], radius=R,
                          outline=(45, 45, 45, 160), width=BORDER)
 
-    # Static charge border (always visible)
     _draw_charge_border(d, state.percent)
 
-    # Snake animation on top
     if snake_progress > 0:
-        _draw_snake(d, snake_progress, state.percent)
+        _draw_snake(d, snake_progress, state.percent, line_width=line_width)
 
     _draw_battery_icon(d, ICON_CX, H // 2, state.percent, state.is_charging, color)
 
@@ -277,7 +275,9 @@ class HudOverlay:
     def _redraw(self, state: BatteryState, snake_progress: float = 0.0) -> None:
         if not self._win or not self._win.winfo_exists():
             return
-        img = make_pill_image(state, snake_progress=snake_progress)
+        gc = self._config.data.get("glow", {}) if self._config else {}
+        lw = int(gc.get("line_width", 4))
+        img = make_pill_image(state, snake_progress=snake_progress, line_width=lw)
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         self._photo = tk.PhotoImage(data=base64.b64encode(buf.getvalue()))
@@ -317,12 +317,17 @@ class HudOverlay:
         _step(0)
 
     def _anim_snake(self, state: BatteryState,
-                    step: int = 0, steps: int = 45) -> None:
-        """Snake grows from 0 to full perimeter over ~steps frames."""
+                    step: int = 0, steps: int = 0) -> None:
+        """Snake grows from 0 to full perimeter, speed from config."""
+        if steps == 0:
+            gc    = self._config.data.get("glow", {}) if self._config else {}
+            speed = gc.get("snake_speed", 600)          # px/s
+            perim = _pill_perim(W, H, R)
+            steps = max(20, min(120, int(perim / speed * 1000 / 16)))
         if not self._win or not self._win.winfo_exists():
             return
         t = (step + 1) / steps
-        self._redraw(state, snake_progress=1 - (1 - t) ** 2)  # ease-out
+        self._redraw(state, snake_progress=1 - (1 - t) ** 2)
         if step < steps - 1:
             self._root.after(16, lambda: self._anim_snake(state, step + 1, steps))
 
