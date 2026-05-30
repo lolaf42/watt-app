@@ -428,7 +428,7 @@ def main() -> None:
     _root.withdraw()
     _root.title("Watt")
 
-    _hud  = HudOverlay(_root)
+    _hud  = HudOverlay(_root, _config)
     _glow = ScreenGlow(_root, _config)
 
     menu = pystray.Menu(

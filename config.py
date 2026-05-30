@@ -26,6 +26,11 @@ DEFAULT: dict = {
         "border_intensity":  100,   # %     (0–100)
         "border_duration":   1.5,   # s     (0.5–8)
     },
+    "hud": {
+        "position_v":  "top",     # top / center / bottom
+        "position_h":  "center",  # left / center / right
+        "animation":   "bounce",  # none / fade / bounce / fill
+    },
 }
 
 

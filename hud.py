@@ -1,16 +1,11 @@
-"""Floating pill HUD overlay — shown on battery state changes.
-
-Renders via PIL into a frameless, near-transparent tkinter window.
-The pill has a colored border that fills left→right based on battery level.
-"""
-
-import os
-import tkinter as tk
-from dataclasses import dataclass
-from typing import Optional
+"""Floating pill HUD overlay — shown on battery state changes."""
 
 import base64
 import io
+import math
+import os
+import tkinter as tk
+from typing import Optional
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -58,25 +53,23 @@ def _status_color(state: BatteryState) -> tuple[int, int, int]:
 
 # ── Pill image renderer ────────────────────────────────────────────────────────
 
-_CHROMA = (1, 1, 1)   # near-black chroma key colour (used for transparency)
+_CHROMA     = (1, 1, 1)
 _CHROMA_HEX = "#010101"
 
-W, H, R = 340, 76, 38   # pill width, height, corner radius
-BORDER = 3               # border stroke width
-ICON_CX = 24             # battery icon centre-x
-PAD_LEFT = 52            # text left edge
+W, H, R = 340, 76, 38
+BORDER   = 3
+ICON_CX  = 24
+PAD_LEFT = 52
 
 
-def _draw_battery_icon(d: ImageDraw.ImageDraw, cx: int, cy: int,
-                        percent: int, is_charging: bool,
-                        color: tuple[int, int, int]) -> None:
+def _draw_battery_icon(d, cx, cy, percent, is_charging, color):
     bw, bh = 26, 13
     x1, y1 = cx - bw // 2, cy - bh // 2
     x2, y2 = x1 + bw, y1 + bh
     c = (*color, 255)
 
-    d.rectangle([x2, cy - 3, x2 + 3, cy + 3], fill=c)       # terminal nub
-    d.rectangle([x1, y1, x2, y2], outline=c, width=2)         # body outline
+    d.rectangle([x2, cy - 3, x2 + 3, cy + 3], fill=c)
+    d.rectangle([x1, y1, x2, y2], outline=c, width=2)
 
     fill_w = int((bw - 4) * percent / 100)
     if fill_w > 0:
@@ -89,34 +82,39 @@ def _draw_battery_icon(d: ImageDraw.ImageDraw, cx: int, cy: int,
         d.polygon(bolt, fill=(255, 240, 60, 255))
 
 
-def make_pill_image(state: BatteryState) -> Image.Image:
+def make_pill_image(state: BatteryState, fill_progress: float = 1.0) -> Image.Image:
     color = _status_color(state)
-    progress = 1.0 if (state.is_charging or state.is_full) else state.percent / 100.0
 
-    # Base image (RGBA, chroma-key background)
     img = Image.new("RGBA", (W, H), (*_CHROMA, 255))
-    d = ImageDraw.Draw(img)
+    d   = ImageDraw.Draw(img)
 
-    # 1 · Dark pill background
     d.rounded_rectangle([0, 0, W - 1, H - 1], radius=R, fill=(18, 18, 18, 235))
-
-    # 2 · Subtle dark pill outline only (no colored progress border)
     d.rounded_rectangle([0, 0, W - 1, H - 1], radius=R,
                          outline=(55, 55, 55, 180), width=BORDER)
 
-    # 3 · Battery icon
-    _draw_battery_icon(d, ICON_CX, H // 2, state.percent,
-                       state.is_charging, color)
+    # Animated charge bar at bottom (fill animation)
+    if fill_progress < 1.0:
+        target = 1.0 if (state.is_charging or state.is_full) else state.percent / 100.0
+        bar_w  = int((W - 16) * target * fill_progress)
+        if bar_w > 0:
+            d.rounded_rectangle([8, H - 7, 8 + bar_w, H - 3],
+                                 radius=2, fill=(*color, 200))
+    else:
+        # Static subtle bar when not animating
+        target = 1.0 if (state.is_charging or state.is_full) else state.percent / 100.0
+        bar_w  = int((W - 16) * target)
+        if bar_w > 0:
+            d.rounded_rectangle([8, H - 7, 8 + bar_w, H - 3],
+                                 radius=2, fill=(*color, 120))
 
-    # 5 · Title text
+    _draw_battery_icon(d, ICON_CX, H // 2, state.percent, state.is_charging, color)
+
     font_title = _find_font(_FONTS_BOLD, 17)
     font_sub   = _find_font(_FONTS_REG, 12)
 
-    title = state.HUD_title
-    sub   = state.HUD_subtitle
-    d.text((PAD_LEFT, H // 2 - 16), title, font=font_title,
+    d.text((PAD_LEFT, H // 2 - 16), state.HUD_title, font=font_title,
            fill=(255, 255, 255, 255))
-    d.text((PAD_LEFT, H // 2 + 4), sub, font=font_sub,
+    d.text((PAD_LEFT, H // 2 + 4),  state.HUD_subtitle, font=font_sub,
            fill=(160, 160, 160, 255))
 
     return img
@@ -125,20 +123,20 @@ def make_pill_image(state: BatteryState) -> Image.Image:
 # ── HUD window ─────────────────────────────────────────────────────────────────
 
 class HudOverlay:
-    """Shows/hides the floating pill on the main tkinter thread."""
+    DISMISS_MS = 4000
+    FADE_STEPS = 20
+    FADE_MS    = 25
 
-    DISMISS_MS = 4000   # ms before auto-dismiss
-    FADE_STEPS = 20     # fade-out steps
-    FADE_MS    = 25     # ms between fade steps
-
-    def __init__(self, root: tk.Tk):
-        self._root = root
-        self._win: Optional[tk.Toplevel] = None
-        self._photo: Optional[tk.PhotoImage] = None
-        self._dismiss_id: Optional[str] = None
+    def __init__(self, root: tk.Tk, config=None):
+        self._root   = root
+        self._config = config
+        self._win:        Optional[tk.Toplevel]   = None
+        self._label:      Optional[tk.Label]       = None
+        self._photo:      Optional[tk.PhotoImage]  = None
+        self._dismiss_id: Optional[str]            = None
         self._alpha = 1.0
 
-    # ── Public API (thread-safe via root.after) ──────────────────────────────
+    # ── Public API ───────────────────────────────────────────────────────────
 
     def show(self, state: BatteryState) -> None:
         self._root.after(0, lambda: self._show(state))
@@ -146,7 +144,39 @@ class HudOverlay:
     def hide(self) -> None:
         self._root.after(0, self._destroy)
 
-    # ── Internal (main thread only) ──────────────────────────────────────────
+    # ── Config helpers ───────────────────────────────────────────────────────
+
+    def _hud_cfg(self) -> dict:
+        if self._config:
+            return self._config.data.get("hud", {})
+        return {}
+
+    def _calc_pos(self) -> tuple[int, int]:
+        cfg    = self._hud_cfg()
+        pos_v  = cfg.get("position_v", "top")
+        pos_h  = cfg.get("position_h", "center")
+        margin = 40
+
+        sw = self._root.winfo_screenwidth()
+        sh = self._root.winfo_screenheight()
+
+        if pos_h == "left":
+            x = margin
+        elif pos_h == "right":
+            x = sw - W - margin
+        else:
+            x = (sw - W) // 2
+
+        if pos_v == "top":
+            y = margin
+        elif pos_v == "bottom":
+            y = sh - H - 60
+        else:
+            y = (sh - H) // 2
+
+        return x, y
+
+    # ── Internal ─────────────────────────────────────────────────────────────
 
     def _show(self, state: BatteryState) -> None:
         self._destroy()
@@ -160,20 +190,82 @@ class HudOverlay:
         except Exception:
             pass
 
-        img = make_pill_image(state)
+        self._win   = win
+        self._alpha = 1.0
+        self._label = None
+
+        self._redraw(state, fill_progress=1.0)
+
+        x, y = self._calc_pos()
+        win.geometry(f"{W}x{H}+{x}+{y}")
+
+        anim = self._hud_cfg().get("animation", "bounce")
+        if anim == "fade":
+            win.attributes("-alpha", 0.0)
+            self._anim_fade_in(steps=15)
+        elif anim == "bounce":
+            self._anim_bounce(x, y)
+        elif anim == "fill":
+            self._anim_fill(state, steps=24)
+
+        self._schedule_dismiss()
+
+    def _redraw(self, state: BatteryState, fill_progress: float = 1.0) -> None:
+        if not self._win or not self._win.winfo_exists():
+            return
+        img = make_pill_image(state, fill_progress=fill_progress)
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         self._photo = tk.PhotoImage(data=base64.b64encode(buf.getvalue()))
+        if self._label and self._label.winfo_exists():
+            self._label.configure(image=self._photo)
+        else:
+            self._label = tk.Label(self._win, image=self._photo,
+                                   bg=_CHROMA_HEX, borderwidth=0)
+            self._label.pack()
 
-        lbl = tk.Label(win, image=self._photo, bg=_CHROMA_HEX, borderwidth=0)
-        lbl.pack()
+    # ── Animations ───────────────────────────────────────────────────────────
 
-        sw = win.winfo_screenwidth()
-        win.geometry(f"{W}x{H}+{(sw - W) // 2}+60")
+    def _anim_fade_in(self, step: int = 0, steps: int = 15) -> None:
+        if not self._win or not self._win.winfo_exists():
+            return
+        self._win.attributes("-alpha", (step + 1) / steps)
+        if step < steps - 1:
+            self._root.after(16, lambda: self._anim_fade_in(step + 1, steps))
 
-        self._win = win
-        self._alpha = 1.0
-        self._schedule_dismiss()
+    def _anim_bounce(self, target_x: int, target_y: int, steps: int = 22) -> None:
+        if not self._win or not self._win.winfo_exists():
+            return
+        pos_v  = self._hud_cfg().get("position_v", "top")
+        sh     = self._root.winfo_screenheight()
+        start_y = sh + H if pos_v == "bottom" else -H
+
+        def _ease_out_back(t: float) -> float:
+            c1 = 1.70158
+            c3 = c1 + 1
+            return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2
+
+        def _step(i: int) -> None:
+            if not self._win or not self._win.winfo_exists():
+                return
+            t = _ease_out_back((i + 1) / steps)
+            y = int(start_y + (target_y - start_y) * t)
+            self._win.geometry(f"+{target_x}+{y}")
+            if i < steps - 1:
+                self._root.after(16, lambda: _step(i + 1))
+
+        _step(0)
+
+    def _anim_fill(self, state: BatteryState, step: int = 0, steps: int = 24) -> None:
+        if not self._win or not self._win.winfo_exists():
+            return
+        t        = (step + 1) / steps
+        progress = 1 - (1 - t) ** 3   # ease-out cubic
+        self._redraw(state, fill_progress=progress)
+        if step < steps - 1:
+            self._root.after(18, lambda: self._anim_fill(state, step + 1, steps))
+
+    # ── Dismiss / fade-out ────────────────────────────────────────────────────
 
     def _schedule_dismiss(self) -> None:
         if self._dismiss_id:
@@ -194,8 +286,7 @@ class HudOverlay:
             self._win.attributes("-alpha", self._alpha)
         except Exception:
             pass
-        self._root.after(self.FADE_MS,
-                         lambda: self._fade_step(steps_left - 1))
+        self._root.after(self.FADE_MS, lambda: self._fade_step(steps_left - 1))
 
     def _destroy(self) -> None:
         if self._dismiss_id:
@@ -203,11 +294,11 @@ class HudOverlay:
             self._dismiss_id = None
         if self._win and self._win.winfo_exists():
             self._win.destroy()
-        self._win = None
+        self._win   = None
+        self._label = None
 
 
-# ── BatteryState display helpers (monkey-patch style) ─────────────────────────
-# Attach HUD-specific text properties to BatteryState via extension functions.
+# ── BatteryState display helpers ───────────────────────────────────────────────
 
 def hud_title(state: BatteryState) -> str:
     if not state.has_battery:
@@ -224,8 +315,6 @@ def hud_subtitle(state: BatteryState) -> str:
         return "No battery detected"
     if state.is_full:
         return "Battery is full"
-    if not state.has_battery:
-        return ""
     if not state.is_charging and state.percent <= 5:
         return "Connect charger immediately"
     if state.seconds_remaining is None:
@@ -234,6 +323,5 @@ def hud_subtitle(state: BatteryState) -> str:
     return f"{state.time_remaining_text} {label}"
 
 
-# Attach as properties (used in make_pill_image above)
 BatteryState.HUD_title    = property(hud_title)
 BatteryState.HUD_subtitle = property(hud_subtitle)

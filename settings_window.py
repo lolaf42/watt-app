@@ -72,8 +72,50 @@ class SettingsWindow(tk.Toplevel):
 
     # ── Build UI ──────────────────────────────────────────────────────────────
 
+    def _option_row(self, parent: tk.Frame, label: str,
+                    var: tk.StringVar, choices: list[tuple[str, str]]):
+        row = tk.Frame(parent, bg=BG)
+        row.pack(fill="x", pady=4)
+        tk.Label(row, text=label, bg=BG, fg=FG,
+                 font=("Segoe UI", 10), width=26, anchor="w").pack(side="left")
+        display_values = [c[0] for c in choices]
+        key_map = {c[0]: c[1] for c in choices}
+        rev_map = {c[1]: c[0] for c in choices}
+        var_display = tk.StringVar(value=rev_map.get(var.get(), display_values[0]))
+        def _on_change(*_):
+            var.set(key_map[var_display.get()])
+        var_display.trace_add("write", _on_change)
+        menu = tk.OptionMenu(row, var_display, *display_values)
+        menu.config(bg=BG2, fg=FG, activebackground=BG3, activeforeground=FG,
+                    relief="flat", highlightthickness=0, font=("Segoe UI", 10))
+        menu["menu"].config(bg=BG2, fg=FG, activebackground=BG3,
+                            activeforeground=FG, font=("Segoe UI", 10))
+        menu.pack(side="left", padx=6)
+
     def _build(self):
         gc = self._data.get("glow", {})
+
+        # ── HUD ─────────────────────────────────────────────────────────────
+        self._section("HUD Window")
+        hud_f = tk.Frame(self, bg=BG)
+        hud_f.pack(fill="x", padx=24, pady=4)
+        hc = self._data.get("hud", {})
+
+        self._v_pos_v = tk.StringVar(value=hc.get("position_v", "top"))
+        self._option_row(hud_f, "Vertical position:",
+                         self._v_pos_v,
+                         [("Oben", "top"), ("Mitte", "center"), ("Unten", "bottom")])
+
+        self._v_pos_h = tk.StringVar(value=hc.get("position_h", "center"))
+        self._option_row(hud_f, "Horizontal position:",
+                         self._v_pos_h,
+                         [("Links", "left"), ("Mitte", "center"), ("Rechts", "right")])
+
+        self._v_anim = tk.StringVar(value=hc.get("animation", "bounce"))
+        self._option_row(hud_f, "Animation:",
+                         self._v_anim,
+                         [("Aufspringen", "bounce"), ("Einblenden", "fade"),
+                          ("Batterie-Füllung", "fill"), ("Kein", "none")])
 
         # ── Glow Animation ──────────────────────────────────────────────────
         self._section("Glow Animation")
@@ -159,6 +201,11 @@ class SettingsWindow(tk.Toplevel):
 
         self._data["poll_interval"] = poll
         self._data["autostart"] = self._v_autostart.get()
+        self._data["hud"] = {
+            "position_v": self._v_pos_v.get(),
+            "position_h": self._v_pos_h.get(),
+            "animation":  self._v_anim.get(),
+        }
         self._data["glow"] = {
             "snake_speed":      self._v_speed.get(),
             "line_width":       self._v_lw.get(),
