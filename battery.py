@@ -24,6 +24,7 @@ class BatteryState:
     temperature_celsius: Optional[float] = None
     voltage_mv: Optional[int] = None
     current_ma: Optional[int] = None
+    power_watts: Optional[float] = None
     design_capacity_mwh: Optional[int] = None
     full_capacity_mwh: Optional[int] = None
     remaining_mwh: Optional[int] = None
@@ -169,6 +170,9 @@ def _get_linux_battery() -> BatteryState:
         temperature_celsius=temp_raw / 10.0 if temp_raw is not None else None,
         voltage_mv=v_now_raw // 1000 if v_now_raw else None,
         current_ma=c_now_raw // 1000 if c_now_raw else None,
+        power_watts=(p_now / 1_000_000 if p_now
+                     else (c_now_raw * v_now_raw / 1_000_000_000_000)
+                          if c_now_raw and v_now_raw else None),
         remaining_mwh=e_now // 1000 if e_now else None,
         full_capacity_mwh=e_full // 1000 if e_full else None,
         design_capacity_mwh=e_design // 1000 if e_design else None,
