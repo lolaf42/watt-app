@@ -18,18 +18,21 @@ BTN = "#21262D"
 
 class SettingsWindow(tk.Toplevel):
     def __init__(self, parent: tk.Tk, config: ConfigManager,
-                 on_save: Callable, on_preview: Callable = None):
+                 on_save: Callable, on_preview: Callable = None,
+                 on_hud_preview: Callable = None):
         super().__init__(parent)
         self.title("Watt — Settings")
         self.configure(bg=BG)
         self.resizable(False, False)
         self.attributes("-topmost", True)
 
-        self._config     = config
-        self._on_save    = on_save
-        self._on_preview = on_preview
-        self._preview_job: str | None = None
-        self._ready      = False
+        self._config         = config
+        self._on_save        = on_save
+        self._on_preview     = on_preview
+        self._on_hud_preview = on_hud_preview
+        self._preview_job:     str | None = None
+        self._hud_preview_job: str | None = None
+        self._ready          = False
         self._data = copy.deepcopy(config.data)
 
         self._build()
@@ -51,7 +54,7 @@ class SettingsWindow(tk.Toplevel):
         tk.Frame(outer, bg=BG3, height=1).pack(fill="x", pady=(3, 0))
         return outer
 
-    def _slider_row(self, parent, label, var, from_, to, fmt):
+    def _slider_row(self, parent, label, var, from_, to, fmt, preview="glow"):
         row = tk.Frame(parent, bg=BG)
         row.pack(fill="x", pady=4)
         tk.Label(row, text=label, bg=BG, fg=FG,
@@ -61,7 +64,10 @@ class SettingsWindow(tk.Toplevel):
         val_lbl.pack(side="right")
         def _upd(v, lbl=val_lbl, f=fmt):
             lbl.config(text=f.format(float(v)))
-            self._schedule_preview()
+            if preview == "hud":
+                self._schedule_hud_preview()
+            else:
+                self._schedule_preview()
         sl = tk.Scale(row, variable=var, from_=from_, to=to,
                       orient="horizontal", bg=BG, fg=FG,
                       troughcolor=BG3, highlightthickness=0,
@@ -120,11 +126,11 @@ class SettingsWindow(tk.Toplevel):
         gc = self._data.get("glow", {})
         self._v_speed = tk.IntVar(value=gc.get("snake_speed", 600))
         self._slider_row(hud_f, "Snake-Geschwindigkeit (px/s):",
-                         self._v_speed, 200, 1500, "{:.0f} px/s")
+                         self._v_speed, 200, 1500, "{:.0f} px/s", preview="hud")
 
         self._v_lw = tk.IntVar(value=gc.get("line_width", 4))
         self._slider_row(hud_f, "Liniendicke (px):",
-                         self._v_lw, 1, 12, "{:.0f} px")
+                         self._v_lw, 1, 12, "{:.0f} px", preview="hud")
 
         # ── Glow Animation ──────────────────────────────────────────────────
         self._section("Glow Animation")
@@ -185,6 +191,18 @@ class SettingsWindow(tk.Toplevel):
                 "border_intensity": self._v_bint.get(),
                 "border_duration":  round(self._v_bdur.get(), 1),
             })
+
+    def _schedule_hud_preview(self):
+        if not self._on_hud_preview or not self._ready:
+            return
+        if self._hud_preview_job:
+            self.after_cancel(self._hud_preview_job)
+        self._hud_preview_job = self.after(300, self._do_hud_preview)
+
+    def _do_hud_preview(self):
+        self._hud_preview_job = None
+        if self._on_hud_preview:
+            self._on_hud_preview(self._v_speed.get(), self._v_lw.get())
 
     # ── Save ─────────────────────────────────────────────────────────────────
 

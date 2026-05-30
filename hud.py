@@ -211,10 +211,20 @@ class HudOverlay:
         self._photo:      Optional[tk.PhotoImage] = None
         self._dismiss_id: Optional[str]          = None
         self._alpha = 1.0
+        self._preview_speed: Optional[int] = None
+        self._preview_lw:    Optional[int] = None
 
     # ── Public API ───────────────────────────────────────────────────────────
 
     def show(self, state: BatteryState) -> None:
+        self._preview_speed = None
+        self._preview_lw    = None
+        self._root.after(0, lambda: self._show(state))
+
+    def preview_show(self, state: BatteryState,
+                     snake_speed: int = None, line_width: int = None) -> None:
+        self._preview_speed = snake_speed
+        self._preview_lw    = line_width
         self._root.after(0, lambda: self._show(state))
 
     def hide(self) -> None:
@@ -276,7 +286,7 @@ class HudOverlay:
         if not self._win or not self._win.winfo_exists():
             return
         gc = self._config.data.get("glow", {}) if self._config else {}
-        lw = int(gc.get("line_width", 4))
+        lw = self._preview_lw if self._preview_lw is not None else int(gc.get("line_width", 4))
         img = make_pill_image(state, snake_progress=snake_progress, line_width=lw)
         buf = io.BytesIO()
         img.save(buf, format="PNG")
@@ -321,7 +331,7 @@ class HudOverlay:
         """Snake grows from 0 to full perimeter, speed from config."""
         if steps == 0:
             gc    = self._config.data.get("glow", {}) if self._config else {}
-            speed = gc.get("snake_speed", 600)          # px/s
+            speed = self._preview_speed if self._preview_speed is not None else gc.get("snake_speed", 600)
             perim = _pill_perim(W, H, R)
             steps = max(20, min(120, int(perim / speed * 1000 / 16)))
         if not self._win or not self._win.winfo_exists():

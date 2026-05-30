@@ -404,8 +404,16 @@ def _open_settings() -> None:
     if _settings_win and _settings_win.winfo_exists():
         _settings_win.lift()
         return
+    def _hud_preview(speed: int, lw: int) -> None:
+        if not _hud:
+            return
+        with _state_lock:
+            s = _state
+        _hud.preview_show(s, snake_speed=speed, line_width=lw)
+
     _settings_win = SettingsWindow(_root, _config, lambda: _alerts.reset(),
-                                   lambda cfg: _glow.preview(cfg))
+                                   lambda cfg: _glow.preview(cfg),
+                                   on_hud_preview=_hud_preview)
 
 
 def _on_quit(_icon=None, _item=None) -> None:
