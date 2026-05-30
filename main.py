@@ -349,18 +349,6 @@ def _poll() -> None:
             if _should_show_hud(new, _prev_state) and _hud:
                 _hud.show(new)
 
-            # Screen glow — one-shot on state change (auto-expires after 5s)
-            if _glow:
-                def _glow_color(s: BatteryState) -> Optional[tuple]:
-                    if not s.has_battery:
-                        return None
-                    if s.is_charging:
-                        return (0, 170, 0)
-                    return None
-                old_c = _glow_color(_prev_state) if _prev_state else None
-                new_c = _glow_color(new)
-                if new_c is not None and new_c != old_c:
-                    _glow.show(new_c)
 
             with _state_lock:
                 _state = new
@@ -442,9 +430,6 @@ def main() -> None:
     # Show HUD immediately on startup
     _hud.show(_state)
 
-    # Show glow immediately if currently charging
-    if _glow and _state.has_battery and _state.is_charging:
-        _glow.show((0, 170, 0))
 
     logger.info("Watt started — %s", _state.status_text)
     try:

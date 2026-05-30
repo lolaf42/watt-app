@@ -231,7 +231,7 @@ class SettingsWindow(tk.Toplevel):
             return
         if self._preview_job:
             self.after_cancel(self._preview_job)
-        self._preview_job = self.after(350, self._do_preview)
+        self._preview_job = self.after(150, self._do_preview)
 
     def _do_preview(self):
         self._preview_job = None
