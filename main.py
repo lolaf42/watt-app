@@ -349,14 +349,20 @@ def _poll() -> None:
             if _should_show_hud(new, _prev_state) and _hud:
                 _hud.show(new)
 
-            # Screen glow — persistent while charging / critical battery
+            # Screen glow — one-shot on state change (auto-expires after 5s)
             if _glow:
-                if new.has_battery and (new.is_charging or new.is_full):
-                    _glow.show((0, 170, 0))
-                elif new.has_battery and new.percent <= 10:
-                    _glow.show((180, 30, 30))
-                else:
-                    _glow.hide()
+                def _glow_color(s: BatteryState) -> Optional[tuple]:
+                    if not s.has_battery:
+                        return None
+                    if s.is_charging or s.is_full:
+                        return (0, 170, 0)
+                    if s.percent <= 10:
+                        return (180, 30, 30)
+                    return None
+                old_c = _glow_color(_prev_state) if _prev_state else None
+                new_c = _glow_color(new)
+                if new_c is not None and new_c != old_c:
+                    _glow.show(new_c)
 
             with _state_lock:
                 _state = new

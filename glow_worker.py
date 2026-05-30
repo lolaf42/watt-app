@@ -26,7 +26,9 @@ _R, _G, _B = int(sys.argv[1]) / 255, int(sys.argv[2]) / 255, int(sys.argv[3]) / 
 
 _GLOW_W      = 72    # glow width (px) inward from each edge
 _PULSE_S     = 3.0   # seconds per breath cycle
-_FPS         = 30    # frames per second (breathing is slow, 30fps is enough)
+_SHOW_S      = 5.0   # seconds to stay fully visible
+_FADE_S      = 1.0   # seconds for the fade-out at the end
+_FPS         = 30    # frames per second
 
 
 class GlowBorder:
@@ -67,8 +69,12 @@ class GlowBorder:
     # ── Animation ─────────────────────────────────────────────────────────────
 
     def _tick(self) -> bool:
+        age = time.monotonic() - self._t0
+        if age >= _SHOW_S + _FADE_S:
+            Gtk.main_quit()
+            return False
         self.win.queue_draw()
-        return True   # keep timer running
+        return True
 
     # ── Drawing ───────────────────────────────────────────────────────────────
 
@@ -83,9 +89,15 @@ class GlowBorder:
         cr.paint()
         cr.set_operator(cairo.OPERATOR_OVER)
 
-        # Gentle breathing pulse (±15 % brightness)
-        age   = time.monotonic() - self._t0
-        pulse = 0.85 + 0.15 * math.cos(age * 2 * math.pi / _PULSE_S)
+        # Breathing pulse + fade-out after _SHOW_S seconds
+        age = time.monotonic() - self._t0
+        if age >= _SHOW_S:
+            # Smooth fade-out over _FADE_S seconds
+            fade  = max(0.0, 1.0 - (age - _SHOW_S) / _FADE_S)
+            pulse = fade
+        else:
+            # Gentle breathing (±15 %)
+            pulse = 0.85 + 0.15 * math.cos(age * 2 * math.pi / _PULSE_S)
 
         def _grad(gx0, gy0, gx1, gy1):
             """Linear gradient from screen edge (bright) to interior (clear)."""
