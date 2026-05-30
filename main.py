@@ -349,15 +349,6 @@ def _poll() -> None:
             if _should_show_hud(new, _prev_state) and _hud:
                 _hud.show(new)
 
-            # Glow — start when charger is plugged in, stop when unplugged
-            if _glow:
-                was_charging = _prev_state.is_charging if _prev_state else False
-                if new.is_charging and not was_charging:
-                    color = (0, 170, 0) if new.percent > 75 else (255, 140, 0)
-                    _glow.show(color)
-                elif not new.is_charging and was_charging:
-                    _glow.hide()
-
             with _state_lock:
                 _state = new
             _prev_state = new
@@ -366,6 +357,27 @@ def _poll() -> None:
             logger.error(f"Poll error: {e}", exc_info=True)
 
         time.sleep(_config.data.get("poll_interval", 30))
+
+
+def _watch_charging() -> None:
+    """Fast loop (2s) that detects charger plug/unplug and triggers glow immediately."""
+    prev_charging: Optional[bool] = None
+    while True:
+        try:
+            s = get_battery_state()
+            if prev_charging is not None and s.is_charging != prev_charging:
+                if _glow:
+                    if s.is_charging:
+                        color = (0, 170, 0) if s.percent > 75 else (255, 140, 0)
+                        _glow.show(color)
+                    else:
+                        _glow.hide()
+                if _hud:
+                    _hud.show(s)
+            prev_charging = s.is_charging
+        except Exception:
+            pass
+        time.sleep(2)
 
 
 # ── Tray callbacks ─────────────────────────────────────────────────────────────
@@ -432,8 +444,9 @@ def main() -> None:
         menu=menu,
     )
 
-    threading.Thread(target=_poll,      daemon=True).start()
-    threading.Thread(target=_tray.run,  daemon=True).start()
+    threading.Thread(target=_poll,            daemon=True).start()
+    threading.Thread(target=_watch_charging,  daemon=True).start()
+    threading.Thread(target=_tray.run,        daemon=True).start()
 
     # Show HUD immediately on startup
     _hud.show(_state)
