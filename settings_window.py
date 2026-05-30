@@ -31,10 +31,12 @@ class SettingsWindow(tk.Toplevel):
         self._on_save    = on_save
         self._on_preview = on_preview
         self._preview_job: str | None = None
+        self._ready      = False
         self._data = copy.deepcopy(config.data)
 
         self._build()
         self.update_idletasks()
+        self._ready = True
         w = self.winfo_reqwidth()
         h = self.winfo_reqheight()
         sw = self.winfo_screenwidth()
@@ -227,7 +229,7 @@ class SettingsWindow(tk.Toplevel):
     # ── Live preview ─────────────────────────────────────────────────────────
 
     def _schedule_preview(self):
-        if not self._on_preview:
+        if not self._on_preview or not self._ready:
             return
         if self._preview_job:
             self.after_cancel(self._preview_job)
