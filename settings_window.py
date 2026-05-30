@@ -12,9 +12,7 @@ BG = "#0D1117"
 BG2 = "#161B22"
 BG3 = "#21262D"
 FG = "#C9D1D9"
-DIM = "#8B949E"
 GREEN = "#00CC00"
-RED = "#DC3232"
 BTN = "#21262D"
 
 
@@ -53,110 +51,50 @@ class SettingsWindow(tk.Toplevel):
         tk.Frame(outer, bg=BG3, height=1).pack(fill="x", pady=(3, 0))
         return outer
 
-    def _check(self, parent: tk.Frame, text: str, var: tk.BooleanVar):
-        tk.Checkbutton(parent, text=text, variable=var,
-                       bg=BG, fg=FG, selectcolor=BG2,
-                       activebackground=BG, activeforeground=FG,
-                       font=("Segoe UI", 10)).pack(anchor="w", pady=2)
-
-    def _threshold_row(self, parent: tk.Frame, value: int, remove_cmd: Callable):
-        f = tk.Frame(parent, bg=BG2)
-        f.pack(fill="x", pady=1)
-        tk.Label(f, text=f"  {value}%", bg=BG2, fg=FG,
-                 font=("Segoe UI", 10), width=8, anchor="w").pack(side="left")
-        tk.Button(f, text="✕", command=remove_cmd,
-                  bg=BG2, fg=RED, relief="flat", padx=6,
-                  cursor="hand2", font=("Segoe UI", 9)).pack(side="right")
-
-    def _add_entry(self, parent: tk.Frame, entry_var: tk.StringVar,
-                   cmd: Callable) -> tk.Entry:
-        f = tk.Frame(parent, bg=BG)
-        f.pack(fill="x", pady=(6, 0))
-        e = tk.Entry(f, textvariable=entry_var, width=6, bg=BG2, fg=FG,
-                     insertbackground=FG, relief="flat", font=("Segoe UI", 10))
-        e.pack(side="left", padx=(0, 6))
-        tk.Button(f, text="Add", command=cmd, bg=BTN, fg=FG,
-                  relief="flat", padx=10, cursor="hand2").pack(side="left")
-        return e
+    def _slider_row(self, parent, label, var, from_, to, fmt):
+        row = tk.Frame(parent, bg=BG)
+        row.pack(fill="x", pady=4)
+        tk.Label(row, text=label, bg=BG, fg=FG,
+                 font=("Segoe UI", 10), width=26, anchor="w").pack(side="left")
+        val_lbl = tk.Label(row, bg=BG, fg=GREEN,
+                           font=("Segoe UI", 10), width=7, anchor="e")
+        val_lbl.pack(side="right")
+        def _upd(v, lbl=val_lbl, f=fmt):
+            lbl.config(text=f.format(float(v)))
+            self._schedule_preview()
+        sl = tk.Scale(row, variable=var, from_=from_, to=to,
+                      orient="horizontal", bg=BG, fg=FG,
+                      troughcolor=BG3, highlightthickness=0,
+                      sliderrelief="flat", showvalue=False,
+                      command=_upd, length=180)
+        sl.pack(side="left", padx=6)
+        val_lbl.config(text=fmt.format(float(var.get())))
 
     # ── Build UI ──────────────────────────────────────────────────────────────
 
     def _build(self):
-        # ── Low thresholds ──────────────────────────────────────────────────
-        self._section("Low Battery Thresholds (%)")
-        low_wrap = tk.Frame(self, bg=BG)
-        low_wrap.pack(fill="x", padx=20, pady=2)
-        self._low_list = tk.Frame(low_wrap, bg=BG)
-        self._low_list.pack(fill="x")
-        self._render_low()
-        self._low_entry_var = tk.StringVar()
-        self._add_entry(low_wrap, self._low_entry_var, self._add_low)
-
-        # ── High thresholds ─────────────────────────────────────────────────
-        self._section("Charge Alert Thresholds (%)")
-        high_wrap = tk.Frame(self, bg=BG)
-        high_wrap.pack(fill="x", padx=20, pady=2)
-        self._high_list = tk.Frame(high_wrap, bg=BG)
-        self._high_list.pack(fill="x")
-        self._render_high()
-        self._high_entry_var = tk.StringVar()
-        self._add_entry(high_wrap, self._high_entry_var, self._add_high)
-
-        # ── Alert types ─────────────────────────────────────────────────────
-        self._section("Alert Types")
-        af = tk.Frame(self, bg=BG)
-        af.pack(fill="x", padx=24, pady=4)
-        ac = self._data["alerts"]
-        self._v_plugged = tk.BooleanVar(value=ac.get("plugged", True))
-        self._v_unplugged = tk.BooleanVar(value=ac.get("unplugged", True))
-        self._v_low = tk.BooleanVar(value=ac.get("threshold_low", True))
-        self._v_high = tk.BooleanVar(value=ac.get("threshold_high", True))
-        self._check(af, "Alert when charger is connected", self._v_plugged)
-        self._check(af, "Alert when charger is disconnected", self._v_unplugged)
-        self._check(af, "Alert on low battery thresholds", self._v_low)
-        self._check(af, "Alert on high charge thresholds", self._v_high)
+        gc = self._data.get("glow", {})
 
         # ── Glow Animation ──────────────────────────────────────────────────
         self._section("Glow Animation")
         glow_f = tk.Frame(self, bg=BG)
         glow_f.pack(fill="x", padx=24, pady=4)
-        gc = self._data.get("glow", {})
-
-        def _slider_row(parent, label, var, from_, to, fmt):
-            row = tk.Frame(parent, bg=BG)
-            row.pack(fill="x", pady=4)
-            tk.Label(row, text=label, bg=BG, fg=FG,
-                     font=("Segoe UI", 10), width=26, anchor="w").pack(side="left")
-            val_lbl = tk.Label(row, bg=BG, fg=GREEN,
-                               font=("Segoe UI", 10), width=7, anchor="e")
-            val_lbl.pack(side="right")
-            def _upd(v, lbl=val_lbl, f=fmt):
-                lbl.config(text=f.format(float(v)))
-                self._schedule_preview()
-            sl = tk.Scale(row, variable=var, from_=from_, to=to,
-                          orient="horizontal", bg=BG, fg=FG,
-                          troughcolor=BG3, highlightthickness=0,
-                          sliderrelief="flat", showvalue=False,
-                          command=_upd, length=180)
-            sl.pack(side="left", padx=6)
-            val_lbl.config(text=fmt.format(float(var.get())))
-            return sl
 
         self._v_speed = tk.IntVar(value=gc.get("snake_speed", 600))
-        _slider_row(glow_f, "Snake speed (px/s):",
-                    self._v_speed, 200, 1500, "{:.0f} px/s")
+        self._slider_row(glow_f, "Snake speed (px/s):",
+                         self._v_speed, 200, 1500, "{:.0f} px/s")
 
         self._v_lw = tk.IntVar(value=gc.get("line_width", 4))
-        _slider_row(glow_f, "Line thickness (px):",
-                    self._v_lw, 1, 20, "{:.0f} px")
+        self._slider_row(glow_f, "Line thickness (px):",
+                         self._v_lw, 1, 20, "{:.0f} px")
 
         self._v_bint = tk.IntVar(value=gc.get("border_intensity", 100))
-        _slider_row(glow_f, "Screen border intensity (%):",
-                    self._v_bint, 0, 100, "{:.0f} %")
+        self._slider_row(glow_f, "Screen border intensity (%):",
+                         self._v_bint, 0, 100, "{:.0f} %")
 
         self._v_bdur = tk.DoubleVar(value=gc.get("border_duration", 1.5))
-        _slider_row(glow_f, "Border glow duration (s):",
-                    self._v_bdur, 0.5, 8.0, "{:.1f} s")
+        self._slider_row(glow_f, "Border glow duration (s):",
+                         self._v_bdur, 0.5, 8.0, "{:.1f} s")
 
         # ── General ─────────────────────────────────────────────────────────
         self._section("General")
@@ -172,7 +110,11 @@ class SettingsWindow(tk.Toplevel):
                  insertbackground=FG, relief="flat").pack(side="left", padx=8)
 
         self._v_autostart = tk.BooleanVar(value=self._data.get("autostart", False))
-        self._check(gf, "Start automatically at login", self._v_autostart)
+        tk.Checkbutton(gf, text="Start automatically at login",
+                       variable=self._v_autostart,
+                       bg=BG, fg=FG, selectcolor=BG2,
+                       activebackground=BG, activeforeground=FG,
+                       font=("Segoe UI", 10)).pack(anchor="w", pady=2)
 
         # ── Buttons ─────────────────────────────────────────────────────────
         bf = tk.Frame(self, bg=BG)
@@ -183,48 +125,6 @@ class SettingsWindow(tk.Toplevel):
         tk.Button(bf, text="Save", command=self._save,
                   bg=GREEN, fg="#000000", relief="flat", padx=16, pady=6,
                   cursor="hand2", font=("Segoe UI", 10, "bold")).pack(side="right")
-
-    # ── Threshold management ──────────────────────────────────────────────────
-
-    def _render_low(self):
-        for w in self._low_list.winfo_children():
-            w.destroy()
-        for t in sorted(self._data["thresholds"]["low"]):
-            self._threshold_row(self._low_list, t, lambda v=t: self._rm_low(v))
-
-    def _render_high(self):
-        for w in self._high_list.winfo_children():
-            w.destroy()
-        for t in sorted(self._data["thresholds"]["high"]):
-            self._threshold_row(self._high_list, t, lambda v=t: self._rm_high(v))
-
-    def _add_low(self):
-        try:
-            v = int(self._low_entry_var.get().strip())
-            if 1 <= v <= 99 and v not in self._data["thresholds"]["low"]:
-                self._data["thresholds"]["low"].append(v)
-                self._render_low()
-                self._low_entry_var.set("")
-        except ValueError:
-            pass
-
-    def _rm_low(self, v: int):
-        self._data["thresholds"]["low"].remove(v)
-        self._render_low()
-
-    def _add_high(self):
-        try:
-            v = int(self._high_entry_var.get().strip())
-            if 1 <= v <= 100 and v not in self._data["thresholds"]["high"]:
-                self._data["thresholds"]["high"].append(v)
-                self._render_high()
-                self._high_entry_var.set("")
-        except ValueError:
-            pass
-
-    def _rm_high(self, v: int):
-        self._data["thresholds"]["high"].remove(v)
-        self._render_high()
 
     # ── Live preview ─────────────────────────────────────────────────────────
 
@@ -264,12 +164,6 @@ class SettingsWindow(tk.Toplevel):
             "line_width":       self._v_lw.get(),
             "border_intensity": self._v_bint.get(),
             "border_duration":  round(self._v_bdur.get(), 1),
-        }
-        self._data["alerts"] = {
-            "plugged": self._v_plugged.get(),
-            "unplugged": self._v_unplugged.get(),
-            "threshold_low": self._v_low.get(),
-            "threshold_high": self._v_high.get(),
         }
 
         self._config.data = self._data
