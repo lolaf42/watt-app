@@ -100,23 +100,11 @@ def make_pill_image(state: BatteryState) -> Image.Image:
     # 1 · Dark pill background
     d.rounded_rectangle([0, 0, W - 1, H - 1], radius=R, fill=(18, 18, 18, 235))
 
-    # 2 · Progress track (full pill, dark border)
+    # 2 · Subtle dark pill outline only (no colored progress border)
     d.rounded_rectangle([0, 0, W - 1, H - 1], radius=R,
-                         outline=(45, 45, 45, 255), width=BORDER)
+                         outline=(55, 55, 55, 180), width=BORDER)
 
-    # 3 · Colored progress border (clipped to progress%)
-    clip_w = max(1, int(W * progress))
-    border_layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    bd = ImageDraw.Draw(border_layer)
-    bd.rounded_rectangle([0, 0, W - 1, H - 1], radius=R,
-                          outline=(*color, 255), width=BORDER)
-    mask = Image.new("L", (W, H), 0)
-    ImageDraw.Draw(mask).rectangle([0, 0, clip_w, H], fill=255)
-    border_layer.putalpha(mask)
-    img = Image.alpha_composite(img, border_layer)
-    d = ImageDraw.Draw(img)
-
-    # 4 · Battery icon
+    # 3 · Battery icon
     _draw_battery_icon(d, ICON_CX, H // 2, state.percent,
                        state.is_charging, color)
 
