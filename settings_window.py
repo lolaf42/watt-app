@@ -137,7 +137,7 @@ class SettingsWindow(tk.Toplevel):
                           sliderrelief="flat", showvalue=False,
                           command=_upd, length=180)
             sl.pack(side="left", padx=6)
-            _upd(var.get())
+            val_lbl.config(text=fmt.format(float(var.get())))
             return sl
 
         self._v_speed = tk.IntVar(value=gc.get("snake_speed", 600))
