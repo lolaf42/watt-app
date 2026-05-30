@@ -370,7 +370,7 @@ def _watch_charging() -> None:
                         _glow.show(charge_color(s.percent))
                     else:
                         _glow.hide()
-                if _hud:
+                if _hud and s.is_charging:
                     _hud.show(s)
             prev_charging = s.is_charging
         except Exception:
