@@ -113,6 +113,47 @@ class SettingsWindow(tk.Toplevel):
         self._check(af, "Alert on low battery thresholds", self._v_low)
         self._check(af, "Alert on high charge thresholds", self._v_high)
 
+        # ── Glow Animation ──────────────────────────────────────────────────
+        self._section("Glow Animation")
+        glow_f = tk.Frame(self, bg=BG)
+        glow_f.pack(fill="x", padx=24, pady=4)
+        gc = self._data.get("glow", {})
+
+        def _slider_row(parent, label, var, from_, to, fmt):
+            row = tk.Frame(parent, bg=BG)
+            row.pack(fill="x", pady=4)
+            tk.Label(row, text=label, bg=BG, fg=FG,
+                     font=("Segoe UI", 10), width=26, anchor="w").pack(side="left")
+            val_lbl = tk.Label(row, bg=BG, fg=GREEN,
+                               font=("Segoe UI", 10), width=7, anchor="e")
+            val_lbl.pack(side="right")
+            def _upd(v, lbl=val_lbl, f=fmt):
+                lbl.config(text=f.format(float(v)))
+            sl = tk.Scale(row, variable=var, from_=from_, to=to,
+                          orient="horizontal", bg=BG, fg=FG,
+                          troughcolor=BG3, highlightthickness=0,
+                          sliderrelief="flat", showvalue=False,
+                          command=_upd, length=180)
+            sl.pack(side="left", padx=6)
+            _upd(var.get())
+            return sl
+
+        self._v_speed = tk.IntVar(value=gc.get("snake_speed", 600))
+        _slider_row(glow_f, "Snake speed (px/s):",
+                    self._v_speed, 200, 1500, "{:.0f} px/s")
+
+        self._v_lw = tk.IntVar(value=gc.get("line_width", 4))
+        _slider_row(glow_f, "Line thickness (px):",
+                    self._v_lw, 1, 20, "{:.0f} px")
+
+        self._v_bint = tk.IntVar(value=gc.get("border_intensity", 100))
+        _slider_row(glow_f, "Screen border intensity (%):",
+                    self._v_bint, 0, 100, "{:.0f} %")
+
+        self._v_bdur = tk.DoubleVar(value=gc.get("border_duration", 1.5))
+        _slider_row(glow_f, "Border glow duration (s):",
+                    self._v_bdur, 0.5, 8.0, "{:.1f} s")
+
         # ── General ─────────────────────────────────────────────────────────
         self._section("General")
         gf = tk.Frame(self, bg=BG)
@@ -195,6 +236,12 @@ class SettingsWindow(tk.Toplevel):
 
         self._data["poll_interval"] = poll
         self._data["autostart"] = self._v_autostart.get()
+        self._data["glow"] = {
+            "snake_speed":      self._v_speed.get(),
+            "line_width":       self._v_lw.get(),
+            "border_intensity": self._v_bint.get(),
+            "border_duration":  round(self._v_bdur.get(), 1),
+        }
         self._data["alerts"] = {
             "plugged": self._v_plugged.get(),
             "unplugged": self._v_unplugged.get(),

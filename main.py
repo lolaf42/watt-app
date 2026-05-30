@@ -422,7 +422,7 @@ def main() -> None:
     _root.title("Watt")
 
     _hud  = HudOverlay(_root)
-    _glow = ScreenGlow(_root)
+    _glow = ScreenGlow(_root, _config)
 
     menu = pystray.Menu(
         pystray.MenuItem("Battery Details...", _on_details, default=True),

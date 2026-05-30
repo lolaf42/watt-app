@@ -1,10 +1,4 @@
-"""Screen glow launcher — manages the glow_worker.py subprocess.
-
-show()  → starts the GTK3/Cairo glow border (idempotent, restarts on colour change)
-hide()  → terminates it
-
-The worker process runs for as long as the condition (charging / critical) is active.
-"""
+"""Screen glow launcher — manages the glow_worker.py subprocess."""
 
 import os
 import subprocess
@@ -17,10 +11,11 @@ _WORKER = os.path.join(os.path.dirname(__file__), "glow_worker.py")
 
 class ScreenGlow:
 
-    def __init__(self, root: tk.Tk):
-        self._root  = root
-        self._proc: Optional[subprocess.Popen] = None
-        self._color: Optional[tuple]            = None
+    def __init__(self, root: tk.Tk, config=None):
+        self._root   = root
+        self._config = config
+        self._proc:  Optional[subprocess.Popen] = None
+        self._color: Optional[tuple]             = None
 
     # ── Public (thread-safe via root.after) ───────────────────────────────────
 
@@ -32,15 +27,24 @@ class ScreenGlow:
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
+    def _glow_args(self, color: tuple) -> list:
+        r, g, b = color
+        gc = self._config.data.get("glow", {}) if self._config else {}
+        speed  = int(gc.get("snake_speed",       600))
+        lw     = int(gc.get("line_width",           4))
+        bint   = int(gc.get("border_intensity",   100))
+        bdur   = float(gc.get("border_duration",  1.5))
+        return [sys.executable, _WORKER,
+                str(r), str(g), str(b),
+                str(speed), str(lw), str(bint), str(bdur)]
+
     def _start(self, color: tuple) -> None:
-        # Already running with the same color — nothing to do
         if self._proc and self._proc.poll() is None and self._color == color:
             return
         self._stop()
-        r, g, b = color
         try:
             self._proc = subprocess.Popen(
-                [sys.executable, _WORKER, str(r), str(g), str(b)],
+                self._glow_args(color),
                 stdout=subprocess.DEVNULL,
             )
             self._color = color

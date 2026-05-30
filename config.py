@@ -20,6 +20,12 @@ DEFAULT: dict = {
     },
     "autostart": False,
     "notification_sound": True,
+    "glow": {
+        "snake_speed":       600,   # px/s  (200–1500)
+        "line_width":          4,   # px    (1–20)
+        "border_intensity":  100,   # %     (0–100)
+        "border_duration":   1.5,   # s     (0.5–8)
+    },
 }
 
 

@@ -25,29 +25,27 @@ import math
 import sys
 import time
 
-# ── Colour ────────────────────────────────────────────────────────────────────
-_R, _G, _B = int(sys.argv[1]) / 255, int(sys.argv[2]) / 255, int(sys.argv[3]) / 255
+# ── Parameters from CLI ───────────────────────────────────────────────────────
+# argv: r g b  snake_speed  line_width  border_intensity(%)  border_duration(s)
+_R, _G, _B      = int(sys.argv[1])/255, int(sys.argv[2])/255, int(sys.argv[3])/255
+_SPEED          = int(sys.argv[4])   if len(sys.argv) > 4 else 600
+_LINE_W         = int(sys.argv[5])   if len(sys.argv) > 5 else 4
+_BORDER_ALPHA   = int(sys.argv[6])/100 if len(sys.argv) > 6 else 1.0
+_FINISH_S       = float(sys.argv[7]) if len(sys.argv) > 7 else 1.5
 
-# ── Screen-border glow ────────────────────────────────────────────────────────
-_BORDER_W = 70          # glow width (px) inward from each screen edge
+# ── Fixed layout constants ────────────────────────────────────────────────────
+_BORDER_W = 70          # screen-edge glow width (px)
+_PILL_W, _PILL_H, _PILL_R, _PILL_Y = 340, 76, 38, 60
+_M   = 14               # margin outside pill for snake
+_GW  = _PILL_W + 2*_M  # 368
+_GH  = _PILL_H + 2*_M  # 104
+_GR  = _PILL_R + _M    # 52
+_FPS = 60
 
-# ── Pill snake (must match hud.py dimensions) ─────────────────────────────────
-_PILL_W = 340
-_PILL_H = 76
-_PILL_R = 38
-_PILL_Y = 60
-_M      = 14            # margin outside pill for the snake glow
-_GW     = _PILL_W + 2 * _M   # 368
-_GH     = _PILL_H + 2 * _M   # 104
-_GR     = _PILL_R + _M        # 52
-
-# ── Timing ────────────────────────────────────────────────────────────────────
-_SPEED    = 600         # px/s along pill perimeter
-_FINISH_S = 1.5         # breathing + fade after snake completes
-_FPS      = 60
-
-# ── Snake glow layers: (line_width, alpha) ────────────────────────────────────
-_SNAKE_LAYERS = [(22, 0.08), (10, 0.40), (4, 1.00)]
+# ── Snake glow layers: (half_width_multiplier, alpha) — scale with _LINE_W ───
+def _snake_layers():
+    hw = max(1, _LINE_W)
+    return [(hw * 5, 0.08), (hw * 2, 0.40), (hw, 1.00)]
 
 
 # ── Pill perimeter math ───────────────────────────────────────────────────────
@@ -174,36 +172,37 @@ class GlowEffect:
         else:
             boost = 1.0
 
-        # ── 1. Screen-edge border glow ───────────────────────────────────────
-        bw = _BORDER_W
         r, g, b = _R, _G, _B
 
+        # ── 1. Screen-edge border glow ───────────────────────────────────────
+        bw = _BORDER_W
+
         def _edge(x, y, w, h, gx0, gy0, gx1, gy1):
+            bi = _BORDER_ALPHA * boost
             pat = cairo.LinearGradient(gx0, gy0, gx1, gy1)
-            pat.add_color_stop_rgba(0.00, r, g, b, boost * 1.00)
-            pat.add_color_stop_rgba(0.15, r, g, b, boost * 0.88)
-            pat.add_color_stop_rgba(0.38, r, g, b, boost * 0.50)
-            pat.add_color_stop_rgba(0.62, r, g, b, boost * 0.15)
-            pat.add_color_stop_rgba(0.82, r, g, b, boost * 0.04)
+            pat.add_color_stop_rgba(0.00, r, g, b, bi * 1.00)
+            pat.add_color_stop_rgba(0.15, r, g, b, bi * 0.88)
+            pat.add_color_stop_rgba(0.38, r, g, b, bi * 0.50)
+            pat.add_color_stop_rgba(0.62, r, g, b, bi * 0.15)
+            pat.add_color_stop_rgba(0.82, r, g, b, bi * 0.04)
             pat.add_color_stop_rgba(1.00, r, g, b, 0.00)
             cr.set_source(pat)
             cr.rectangle(x, y, w, h)
             cr.fill()
 
-        _edge(0,      0,      W,  bw, 0, 0,      0, bw)      # top
-        _edge(0,      H - bw, W,  bw, 0, H,      0, H - bw)  # bottom
-        _edge(0,      0,      bw, H,  0, 0,      bw, 0)       # left
-        _edge(W - bw, 0,      bw, H,  W, 0,      W - bw, 0)   # right
+        _edge(0,      0,      W,  bw, 0, 0,      0, bw)
+        _edge(0,      H - bw, W,  bw, 0, H,      0, H - bw)
+        _edge(0,      0,      bw, H,  0, 0,      bw, 0)
+        _edge(W - bw, 0,      bw, H,  W, 0,      W - bw, 0)
 
         # ── 2. Pill snake ────────────────────────────────────────────────────
-        arc   = max(0.0, self.elapsed)
-        n     = max(2, int(arc / 4))
-        lx    = self.pill_lx
-        ly    = self.pill_ly
-        pts   = [_pill_xy(arc * i / n, lx, ly, _GW, _GH, _GR) for i in range(n + 1)]
+        arc  = max(0.0, self.elapsed)
+        n    = max(2, int(arc / 4))
+        lx, ly = self.pill_lx, self.pill_ly
+        pts  = [_pill_xy(arc * i / n, lx, ly, _GW, _GH, _GR) for i in range(n + 1)]
 
         if len(pts) >= 2:
-            for lw, la in _SNAKE_LAYERS:
+            for lw, la in _snake_layers():
                 cr.set_source_rgba(r, g, b, la * boost)
                 cr.set_line_width(lw)
                 cr.set_line_cap(cairo.LINE_CAP_ROUND)
@@ -214,10 +213,9 @@ class GlowEffect:
                     cr.line_to(px, py)
                 cr.stroke()
 
-            # White dot at snake head
             hx, hy = pts[-1]
             cr.set_source_rgba(1, 1, 1, boost)
-            cr.arc(hx, hy, 4, 0, 2 * math.pi)
+            cr.arc(hx, hy, max(2, _LINE_W // 2), 0, 2 * math.pi)
             cr.fill()
 
         return False
