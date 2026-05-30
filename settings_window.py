@@ -36,12 +36,12 @@ class SettingsWindow(tk.Toplevel):
 
         self._build()
         self.update_idletasks()
-        self._ready = True
         w = self.winfo_reqwidth()
         h = self.winfo_reqheight()
         sw = self.winfo_screenwidth()
         sh = self.winfo_screenheight()
         self.geometry(f"{w}x{h}+{(sw - w) // 2}+{(sh - h) // 2}")
+        self.after(300, lambda: setattr(self, '_ready', True))
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
