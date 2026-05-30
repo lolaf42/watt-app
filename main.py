@@ -316,8 +316,7 @@ def _should_show_hud(new: BatteryState, old: Optional[BatteryState]) -> bool:
         return False
     if old is None:
         return True
-    if new.is_charging != old.is_charging:
-        return True
+    # charging state change handled by _watch_charging (not here)
     if new.is_full and not old.is_full:
         return True
     for t in _config.data.get("thresholds", {}).get("low", []):

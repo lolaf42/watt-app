@@ -47,14 +47,11 @@ class ScreenGlow:
 
     def _glow_args(self, color: tuple) -> list:
         r, g, b = color
-        gc = self._config.data.get("glow", {}) if self._config else {}
-        speed  = int(gc.get("snake_speed",       600))
-        lw     = int(gc.get("line_width",           4))
-        bint   = int(gc.get("border_intensity",   100))
-        bdur   = float(gc.get("border_duration",  1.5))
+        gc   = self._config.data.get("glow", {}) if self._config else {}
+        bint = int(gc.get("border_intensity", 100))
+        bdur = float(gc.get("border_duration", 3.0))
         return [sys.executable, _WORKER,
-                str(r), str(g), str(b),
-                str(speed), str(lw), str(bint), str(bdur)]
+                str(r), str(g), str(b), str(bint), str(bdur)]
 
     def preview(self, glow_cfg: dict) -> None:
         """Force-restart with temporary config for live settings preview."""
@@ -66,13 +63,11 @@ class ScreenGlow:
         r, g, b = color
         gc = glow_cfg
         try:
+            bint = int(gc.get("border_intensity", 100))
+            bdur = float(gc.get("border_duration", 3.0))
             self._proc = subprocess.Popen(
                 [sys.executable, _WORKER,
-                 str(r), str(g), str(b),
-                 str(int(gc.get("snake_speed", 600))),
-                 str(int(gc.get("line_width", 4))),
-                 str(int(gc.get("border_intensity", 100))),
-                 str(float(gc.get("border_duration", 1.5)))],
+                 str(r), str(g), str(b), str(bint), str(bdur)],
                 stdout=subprocess.DEVNULL,
                 env=_clean_env(),
             )

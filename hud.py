@@ -106,23 +106,47 @@ def _pill_xy(dist: float, gw: int, gh: int, gr: int) -> tuple[float, float]:
     return gr + gr * math.cos(t), gr - gr * math.sin(t)
 
 
-def _draw_charge_border(d: ImageDraw.ImageDraw, percent: int,
-                        fill_progress: float = 1.0) -> None:
-    """Draw partial pill border representing charge level, optionally animated."""
+def _border_pts(target_dist: float, n: int = 400) -> list[tuple[float, float]]:
+    perim = _pill_perim(W, H, R)
+    pts: list[tuple[float, float]] = []
+    for i in range(n + 1):
+        dist = perim * i / n
+        if dist > target_dist:
+            break
+        pts.append(_pill_xy(dist, W, H, R))
+    return pts
+
+
+def _draw_charge_border(d: ImageDraw.ImageDraw, percent: int) -> None:
+    """Static partial border arc showing charge level."""
     if percent <= 0:
         return
     color  = charge_color(percent)
     perim  = _pill_perim(W, H, R)
-    target = perim * min(percent, 100) / 100 * fill_progress
-    n      = 400
-    pts: list[tuple[float, float]] = []
-    for i in range(n + 1):
-        dist = perim * i / n
-        if dist > target:
-            break
-        pts.append(_pill_xy(dist, W, H, R))
+    target = perim * min(percent, 100) / 100
+    pts    = _border_pts(target)
     if len(pts) >= 2:
-        d.line(pts, fill=(*color, 255), width=4)
+        d.line(pts, fill=(*color, 180), width=4)
+
+
+def _draw_snake(d: ImageDraw.ImageDraw, snake_progress: float, percent: int) -> None:
+    """Animated snake growing from 0 to full perimeter, drawn over charge border."""
+    if snake_progress <= 0:
+        return
+    color = charge_color(percent)
+    bright = tuple(min(c + 60, 255) for c in color)
+    perim  = _pill_perim(W, H, R)
+    target = perim * min(snake_progress, 1.0)
+    pts    = _border_pts(target)
+    if len(pts) < 2:
+        return
+    # Outer glow
+    d.line(pts, fill=(*color, 50), width=10)
+    # Core
+    d.line(pts, fill=(*color, 220), width=4)
+    # Bright tip
+    hx, hy = pts[-1]
+    d.ellipse([hx - 4, hy - 4, hx + 4, hy + 4], fill=(*bright, 255))
 
 
 def _draw_battery_icon(d, cx, cy, percent, is_charging, color):
@@ -145,28 +169,27 @@ def _draw_battery_icon(d, cx, cy, percent, is_charging, color):
         d.polygon(bolt, fill=(255, 240, 60, 255))
 
 
-def make_pill_image(state: BatteryState, fill_progress: float = 1.0) -> Image.Image:
+def make_pill_image(state: BatteryState, snake_progress: float = 0.0) -> Image.Image:
     color = _status_color(state)
 
     img = Image.new("RGBA", (W, H), (*_CHROMA, 255))
     d   = ImageDraw.Draw(img)
 
-    # Background
     d.rounded_rectangle([0, 0, W - 1, H - 1], radius=R, fill=(18, 18, 18, 235))
-
-    # Dim full-perimeter outline
     d.rounded_rectangle([0, 0, W - 1, H - 1], radius=R,
                          outline=(45, 45, 45, 160), width=BORDER)
 
-    # Colored charge border (partial perimeter = battery percent)
-    _draw_charge_border(d, state.percent, fill_progress=fill_progress)
+    # Static charge border (always visible)
+    _draw_charge_border(d, state.percent)
 
-    # Battery icon + text
+    # Snake animation on top
+    if snake_progress > 0:
+        _draw_snake(d, snake_progress, state.percent)
+
     _draw_battery_icon(d, ICON_CX, H // 2, state.percent, state.is_charging, color)
 
     font_title = _find_font(_FONTS_BOLD, 17)
     font_sub   = _find_font(_FONTS_REG, 12)
-
     d.text((PAD_LEFT, H // 2 - 16), state.HUD_title, font=font_title,
            fill=(255, 255, 255, 255))
     d.text((PAD_LEFT, H // 2 + 4),  state.HUD_subtitle, font=font_sub,
@@ -239,20 +262,22 @@ class HudOverlay:
         win.geometry(f"{W}x{H}+{x}+{y}")
 
         anim = self._hud_cfg().get("animation", "bounce")
+        snake_delay = 0
         if anim == "fade":
             win.attributes("-alpha", 0.0)
             self._anim_fade_in()
         elif anim == "bounce":
             self._anim_bounce(x, y)
-        elif anim == "fill":
-            self._anim_fill(state)
+            snake_delay = 380   # wait for bounce to finish
+        # Snake always runs after the position animation
+        self._root.after(snake_delay, lambda: self._anim_snake(state))
 
         self._schedule_dismiss()
 
-    def _redraw(self, state: BatteryState, fill_progress: float = 1.0) -> None:
+    def _redraw(self, state: BatteryState, snake_progress: float = 0.0) -> None:
         if not self._win or not self._win.winfo_exists():
             return
-        img = make_pill_image(state, fill_progress=fill_progress)
+        img = make_pill_image(state, snake_progress=snake_progress)
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         self._photo = tk.PhotoImage(data=base64.b64encode(buf.getvalue()))
@@ -273,8 +298,8 @@ class HudOverlay:
             self._root.after(16, lambda: self._anim_fade_in(step + 1, steps))
 
     def _anim_bounce(self, tx: int, ty: int, steps: int = 22) -> None:
-        pos_v  = self._hud_cfg().get("position_v", "top")
-        sh     = self._root.winfo_screenheight()
+        pos_v   = self._hud_cfg().get("position_v", "top")
+        sh      = self._root.winfo_screenheight()
         start_y = sh + H if pos_v == "bottom" else -H
 
         def _ease(t: float) -> float:
@@ -291,13 +316,15 @@ class HudOverlay:
 
         _step(0)
 
-    def _anim_fill(self, state: BatteryState, step: int = 0, steps: int = 28) -> None:
+    def _anim_snake(self, state: BatteryState,
+                    step: int = 0, steps: int = 45) -> None:
+        """Snake grows from 0 to full perimeter over ~steps frames."""
         if not self._win or not self._win.winfo_exists():
             return
         t = (step + 1) / steps
-        self._redraw(state, fill_progress=1 - (1 - t) ** 3)
+        self._redraw(state, snake_progress=1 - (1 - t) ** 2)  # ease-out
         if step < steps - 1:
-            self._root.after(16, lambda: self._anim_fill(state, step + 1, steps))
+            self._root.after(16, lambda: self._anim_snake(state, step + 1, steps))
 
     # ── Dismiss / fade-out ────────────────────────────────────────────────────
 
