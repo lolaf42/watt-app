@@ -1,4 +1,4 @@
-"""Floating pill HUD overlay — shown on battery state changes."""
+"""Floating pill HUD overlay."""
 
 import base64
 import io
@@ -11,7 +11,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from battery import BatteryState
 
-# ── Font discovery ─────────────────────────────────────────────────────────────
+# ── Fonts ──────────────────────────────────────────────────────────────────────
 
 _FONTS_BOLD = [
     "/usr/share/fonts/truetype/ubuntu/Ubuntu-B.ttf",
@@ -28,196 +28,160 @@ _FONTS_REG = [
     "C:/Windows/Fonts/segoeui.ttf",
 ]
 
-
-def _find_font(candidates: list[str], size: int) -> ImageFont.FreeTypeFont:
-    for path in candidates:
-        if os.path.exists(path):
+def _find_font(candidates, size):
+    for p in candidates:
+        if os.path.exists(p):
             try:
-                return ImageFont.truetype(path, size)
+                return ImageFont.truetype(p, size)
             except Exception:
                 pass
     return ImageFont.load_default()
 
-
-# ── Color scheme ───────────────────────────────────────────────────────────────
+# ── Colors ─────────────────────────────────────────────────────────────────────
 
 def charge_color(percent: int) -> tuple[int, int, int]:
-    if percent >= 60:
-        return (0, 200, 60)
-    if percent >= 25:
-        return (255, 140, 0)
-    if percent >= 10:
-        return (220, 70, 0)
+    if percent >= 60: return (0, 200, 60)
+    if percent >= 25: return (255, 140, 0)
+    if percent >= 10: return (220, 70, 0)
     return (200, 30, 30)
 
-
 def _status_color(state: BatteryState) -> tuple[int, int, int]:
-    if state.is_charging or state.is_full:
-        return (0, 204, 0)
+    if state.is_charging or state.is_full: return (0, 204, 0)
     return charge_color(state.percent)
 
+# ── Layout ─────────────────────────────────────────────────────────────────────
 
-# ── Pill image renderer ────────────────────────────────────────────────────────
+_CHROMA     = (1, 1, 1)
+_CHROMA_HEX = "#010101"
+_WIN_ALPHA  = 0.92
 
-_WIN_BG  = "#080808"   # window background — dark, no chroma key
-_WIN_ALPHA = 0.88      # base window transparency
-
-W, H, R  = 340, 76, 38
-PAD      = 8           # padding around pill for glow/shadow room
+W, H, R  = 340, 76, 38          # pill dimensions
+PAD      = 12                    # padding around pill for glow
 BORDER   = 2
 ICON_CX  = 24
 PAD_LEFT = 52
+CW, CH   = W + 2*PAD, H + 2*PAD # total canvas / window size
 
-# Total canvas size (includes padding)
-CW, CH = W + 2 * PAD, H + 2 * PAD
+# ── Perimeter math ─────────────────────────────────────────────────────────────
 
+def _pill_perim(gw, gh, gr):
+    return 2*(gw - 2*gr) + 2*math.pi*gr
 
-# ── Perimeter math (pill coords inside the padded canvas) ─────────────────────
-
-def _pill_perim(gw: int, gh: int, gr: int) -> float:
-    return 2 * (gw - 2 * gr) + 2 * math.pi * gr
-
-
-def _pill_xy(dist: float, ox: int, oy: int, gw: int, gh: int, gr: int) -> tuple[float, float]:
-    """Perimeter distance → (x, y) with offset (ox, oy), clockwise from left-centre."""
+def _pill_xy(dist, ox, oy, gw, gh, gr):
     perim = _pill_perim(gw, gh, gr)
-    d     = dist % perim
-    aq    = math.pi * gr / 2
-    st    = gw - 2 * gr
-
+    d = dist % perim
+    aq = math.pi * gr / 2
+    st = gw - 2*gr
     if d < aq:
-        t = math.pi * (1 - d / aq * 0.5)
-        return ox + gr + gr * math.cos(t), oy + gr - gr * math.sin(t)
+        t = math.pi*(1 - d/aq*0.5)
+        return ox+gr+gr*math.cos(t), oy+gr-gr*math.sin(t)
     d -= aq
-    if d < st:
-        return ox + gr + d, float(oy)
+    if d < st: return ox+gr+d, float(oy)
     d -= st
     if d < aq:
-        t = math.pi / 2 * (1 - d / aq)
-        return ox + gw - gr + gr * math.cos(t), oy + gr - gr * math.sin(t)
+        t = math.pi/2*(1-d/aq)
+        return ox+gw-gr+gr*math.cos(t), oy+gr-gr*math.sin(t)
     d -= aq
     if d < aq:
-        t = -math.pi / 2 * d / aq
-        return ox + gw - gr + gr * math.cos(t), oy + gr - gr * math.sin(t)
+        t = -math.pi/2*d/aq
+        return ox+gw-gr+gr*math.cos(t), oy+gr-gr*math.sin(t)
     d -= aq
-    if d < st:
-        return ox + gw - gr - d, float(oy + gh)
+    if d < st: return ox+gw-gr-d, float(oy+gh)
     d -= st
-    frac = min(d / aq, 1.0)
-    t = -math.pi / 2 * (1 + frac)
-    return ox + gr + gr * math.cos(t), oy + gr - gr * math.sin(t)
+    t = -math.pi/2*(1+min(d/aq, 1.0))
+    return ox+gr+gr*math.cos(t), oy+gr-gr*math.sin(t)
 
-
-def _border_pts(target_dist: float, ox: int = PAD, oy: int = PAD,
-                n: int = 600) -> list[tuple[float, float]]:
+def _border_pts(target, n=600):
     perim = _pill_perim(W, H, R)
-    pts: list[tuple[float, float]] = []
-    for i in range(n + 1):
-        dist = perim * i / n
-        if dist > target_dist:
-            break
-        pts.append(_pill_xy(dist, ox, oy, W, H, R))
+    pts = []
+    for i in range(n+1):
+        dist = perim*i/n
+        if dist > target: break
+        pts.append(_pill_xy(dist, PAD, PAD, W, H, R))
     return pts
 
+# ── Drawing helpers ────────────────────────────────────────────────────────────
 
-def _draw_charge_border(d: ImageDraw.ImageDraw, percent: int) -> None:
-    if percent <= 0:
-        return
-    color  = charge_color(percent)
-    perim  = _pill_perim(W, H, R)
-    target = perim * min(percent, 100) / 100
-    pts    = _border_pts(target)
+def _draw_charge_border(d, percent):
+    if percent <= 0: return
+    color = charge_color(percent)
+    perim = _pill_perim(W, H, R)
+    pts   = _border_pts(perim * min(percent, 100) / 100)
     if len(pts) >= 2:
-        d.line(pts, fill=(*color, 160), width=3)
+        d.line(pts, fill=(*color, 170), width=3)
 
-
-def _draw_snake(d: ImageDraw.ImageDraw, snake_progress: float,
-                percent: int, line_width: int = 4) -> None:
-    if snake_progress <= 0:
-        return
+def _draw_snake(d, snake_progress, percent, lw_px):
+    if snake_progress <= 0: return
     color  = charge_color(percent)
-    bright = tuple(min(c + 80, 255) for c in color)
+    bright = tuple(min(c+80, 255) for c in color)
     perim  = _pill_perim(W, H, R)
-    target = perim * min(snake_progress, 1.0)
-    pts    = _border_pts(target)
-    if len(pts) < 2:
-        return
-    lw = max(2, line_width)
-    d.line(pts, fill=(*color, 35),  width=lw * 4)   # wide soft glow
-    d.line(pts, fill=(*color, 100), width=lw * 2)   # mid glow
-    d.line(pts, fill=(*color, 230), width=lw)        # core
+    pts    = _border_pts(perim * min(snake_progress, 1.0))
+    if len(pts) < 2: return
+    lw = max(2, lw_px)
+    d.line(pts, fill=(*color, 30),  width=lw*5)
+    d.line(pts, fill=(*color, 90),  width=lw*2)
+    d.line(pts, fill=(*color, 230), width=lw)
     hx, hy = pts[-1]
-    r = max(3, lw)
-    d.ellipse([hx - r, hy - r, hx + r, hy + r], fill=(*bright, 255))
-    d.ellipse([hx - r//2, hy - r//2, hx + r//2, hy + r//2],
-              fill=(255, 255, 255, 255))
-
+    r = max(3, lw+1)
+    d.ellipse([hx-r, hy-r, hx+r, hy+r],   fill=(*bright, 255))
+    d.ellipse([hx-r//2, hy-r//2, hx+r//2, hy+r//2], fill=(255,255,255,255))
 
 def _draw_battery_icon(d, cx, cy, percent, is_charging, color):
     bw, bh = 26, 13
-    x1, y1 = cx - bw // 2, cy - bh // 2
-    x2, y2 = x1 + bw, y1 + bh
+    x1, y1 = cx-bw//2, cy-bh//2
+    x2, y2 = x1+bw, y1+bh
     c = (*color, 255)
-    d.rectangle([x2, cy - 3, x2 + 3, cy + 3], fill=c)
+    d.rectangle([x2, cy-3, x2+3, cy+3], fill=c)
     d.rectangle([x1, y1, x2, y2], outline=c, width=2)
-    fill_w = int((bw - 4) * percent / 100)
-    if fill_w > 0:
-        d.rectangle([x1 + 2, y1 + 2, x1 + 2 + fill_w, y2 - 2], fill=c)
+    fw = int((bw-4)*percent/100)
+    if fw > 0:
+        d.rectangle([x1+2, y1+2, x1+2+fw, y2-2], fill=c)
     if is_charging:
         bx = cx
-        bolt = [(bx + 1, y1 + 1), (bx - 4, cy), (bx, cy),
-                (bx - 1, y2 - 1), (bx + 5, cy), (bx + 1, cy)]
-        d.polygon(bolt, fill=(255, 240, 60, 255))
+        bolt = [(bx+1,y1+1),(bx-4,cy),(bx,cy),(bx-1,y2-1),(bx+5,cy),(bx+1,cy)]
+        d.polygon(bolt, fill=(255,240,60,255))
 
+def make_pill_image(state: BatteryState,
+                    snake_progress: float = 0.0,
+                    lw_px: int = 4) -> Image.Image:
+    color    = _status_color(state)
+    gc_col   = charge_color(state.percent)
 
-def make_pill_image(state: BatteryState, snake_progress: float = 0.0,
-                    line_width: int = 4) -> Image.Image:
-    color = _status_color(state)
-
-    # Canvas: fully black (matches window background)
-    img = Image.new("RGB", (CW, CH), (8, 8, 8))
-    d   = ImageDraw.Draw(img)
-
-    # Outer soft glow around pill (blur a slightly larger rounded rect)
-    glow_col = charge_color(state.percent)
-    glow = Image.new("RGB", (CW, CH), (8, 8, 8))
+    # ── Layer 1: soft outer glow on transparent canvas ────────────────────────
+    pill = Image.new("RGBA", (CW, CH), (0, 0, 0, 0))
+    glow = Image.new("RGBA", (CW, CH), (0, 0, 0, 0))
     gd   = ImageDraw.Draw(glow)
-    gd.rounded_rectangle([PAD - 4, PAD - 4, CW - PAD + 3, CH - PAD + 3],
-                          radius=R + 4, fill=(*glow_col,))
-    glow = glow.filter(ImageFilter.GaussianBlur(8))
-    # Blend glow subtly into canvas
-    img = Image.blend(img, glow, 0.18)
-    d = ImageDraw.Draw(img)
+    gd.rounded_rectangle([PAD, PAD, CW-PAD-1, CH-PAD-1],
+                          radius=R, fill=(*gc_col, 100))
+    glow = glow.filter(ImageFilter.GaussianBlur(PAD-2))
+    pill = Image.alpha_composite(pill, glow)
 
-    # Pill background — dark, slightly lighter than pure black
-    d.rounded_rectangle([PAD, PAD, CW - PAD - 1, CH - PAD - 1],
-                         radius=R, fill=(14, 14, 14))
+    # ── Layer 2: pill body ────────────────────────────────────────────────────
+    d = ImageDraw.Draw(pill)
+    d.rounded_rectangle([PAD, PAD, CW-PAD-1, CH-PAD-1],
+                         radius=R, fill=(13, 13, 13, 252))
+    d.rounded_rectangle([PAD, PAD, CW-PAD-1, CH-PAD-1],
+                         radius=R, outline=(55, 55, 55, 140), width=BORDER)
 
-    # Subtle inner border
-    d.rounded_rectangle([PAD, PAD, CW - PAD - 1, CH - PAD - 1],
-                         radius=R, outline=(50, 50, 50), width=BORDER)
-
-    # Charge border arc
+    # ── Layer 3: charge border + snake ────────────────────────────────────────
     _draw_charge_border(d, state.percent)
-
-    # Snake animation
     if snake_progress > 0:
-        _draw_snake(d, snake_progress, state.percent, line_width=line_width)
+        _draw_snake(d, snake_progress, state.percent, lw_px)
 
-    # Battery icon (shifted by PAD)
-    _draw_battery_icon(d, PAD + ICON_CX, PAD + H // 2,
+    # ── Layer 4: icon + text ──────────────────────────────────────────────────
+    _draw_battery_icon(d, PAD+ICON_CX, PAD+H//2,
                        state.percent, state.is_charging, color)
+    ft = _find_font(_FONTS_BOLD, 17)
+    fs = _find_font(_FONTS_REG,  12)
+    d.text((PAD+PAD_LEFT, PAD+H//2-16), state.HUD_title,
+           font=ft, fill=(238, 238, 238, 255))
+    d.text((PAD+PAD_LEFT, PAD+H//2+4),  state.HUD_subtitle,
+           font=fs, fill=(145, 145, 145, 255))
 
-    # Text
-    font_title = _find_font(_FONTS_BOLD, 17)
-    font_sub   = _find_font(_FONTS_REG,  12)
-    d.text((PAD + PAD_LEFT, PAD + H // 2 - 16), state.HUD_title,
-           font=font_title, fill=(240, 240, 240))
-    d.text((PAD + PAD_LEFT, PAD + H // 2 + 4),  state.HUD_subtitle,
-           font=font_sub,   fill=(150, 150, 150))
-
-    return img
-
+    # ── Composite onto chroma-key background (transparent corners) ────────────
+    final = Image.new("RGB", (CW, CH), _CHROMA)
+    final.paste(pill.convert("RGB"), mask=pill.split()[3])
+    return final
 
 # ── HUD window ─────────────────────────────────────────────────────────────────
 
@@ -233,11 +197,10 @@ class HudOverlay:
         self._label:      Optional[tk.Label]      = None
         self._photo:      Optional[tk.PhotoImage] = None
         self._dismiss_id: Optional[str]           = None
-        self._alpha       = _WIN_ALPHA
         self._preview_speed: Optional[int] = None
         self._preview_lw:    Optional[int] = None
 
-    # ── Public API ───────────────────────────────────────────────────────────
+    # ── Public ────────────────────────────────────────────────────────────────
 
     def show(self, state: BatteryState) -> None:
         self._preview_speed = None
@@ -245,74 +208,78 @@ class HudOverlay:
         self._root.after(0, lambda: self._show(state))
 
     def preview_show(self, state: BatteryState,
-                     snake_speed: int = None, line_width: int = None) -> None:
+                     snake_speed=None, line_width_pct=None) -> None:
         self._preview_speed = snake_speed
-        self._preview_lw    = line_width
+        self._preview_lw    = line_width_pct
         self._root.after(0, lambda: self._show(state))
 
     def hide(self) -> None:
         self._root.after(0, self._destroy)
 
-    # ── Config helpers ───────────────────────────────────────────────────────
+    # ── Config ────────────────────────────────────────────────────────────────
 
     def _hud_cfg(self) -> dict:
         return self._config.data.get("hud", {}) if self._config else {}
 
+    def _glow_cfg(self) -> dict:
+        return self._config.data.get("glow", {}) if self._config else {}
+
     def _calc_pos(self) -> tuple[int, int]:
         cfg    = self._hud_cfg()
-        pos_v  = cfg.get("position_v", "top")
-        pos_h  = cfg.get("position_h", "center")
-        margin = 32
+        pos_v  = cfg.get("position_v", 5)
+        pos_h  = cfg.get("position_h", 50)
         sw     = self._root.winfo_screenwidth()
         sh     = self._root.winfo_screenheight()
-
-        # Position of the pill centre (window is CW x CH, offset by PAD)
-        x = margin - PAD if pos_h == "left" \
-            else sw - CW - margin + PAD if pos_h == "right" \
-            else (sw - CW) // 2
-        y = margin - PAD if pos_v == "top" \
-            else sh - CH - 52 + PAD if pos_v == "bottom" \
-            else (sh - CH) // 2
+        mt, mb, ml, mr = 40, 60, 20, 20
+        x = ml + int((sw - CW - ml - mr) * pos_h / 100)
+        y = mt + int((sh - CH - mt - mb) * pos_v / 100)
         return x, y
 
-    # ── Internal ─────────────────────────────────────────────────────────────
+    def _lw_px(self) -> int:
+        gc  = self._glow_cfg()
+        pct = self._preview_lw if self._preview_lw is not None \
+              else gc.get("line_width_pct", 120)
+        return max(1, int(pct / 30))
+
+    def _anim_speed(self) -> float:
+        return self._hud_cfg().get("anim_speed", 1.0)
+
+    # ── Internal ──────────────────────────────────────────────────────────────
 
     def _show(self, state: BatteryState) -> None:
         self._destroy()
-
         win = tk.Toplevel(self._root)
         win.overrideredirect(True)
         win.attributes("-topmost", True)
-        win.configure(bg=_WIN_BG)
+        win.configure(bg=_CHROMA_HEX)
+        try:
+            win.wm_attributes("-transparentcolor", _CHROMA_HEX)
+        except Exception:
+            pass
         win.attributes("-alpha", _WIN_ALPHA)
-
         self._win   = win
-        self._alpha = _WIN_ALPHA
         self._label = None
-
         self._redraw(state)
         x, y = self._calc_pos()
         win.geometry(f"{CW}x{CH}+{x}+{y}")
 
-        anim        = self._hud_cfg().get("animation", "bounce")
-        snake_delay = 0
+        anim  = self._hud_cfg().get("animation", "bounce")
+        spd   = max(0.25, self._anim_speed())
+        delay = 0
         if anim == "fade":
             win.attributes("-alpha", 0.0)
-            self._anim_fade_in()
+            self._anim_fade_in(steps=max(5, int(15/spd)))
         elif anim == "bounce":
-            self._anim_bounce(x, y)
-            snake_delay = 380
-        self._root.after(snake_delay, lambda: self._anim_snake(state))
-
+            self._anim_bounce(x, y, steps=max(8, int(22/spd)))
+            delay = int(380/spd)
+        self._root.after(delay, lambda: self._anim_snake(state))
         self._schedule_dismiss()
 
     def _redraw(self, state: BatteryState, snake_progress: float = 0.0) -> None:
         if not self._win or not self._win.winfo_exists():
             return
-        gc = self._config.data.get("glow", {}) if self._config else {}
-        lw = self._preview_lw if self._preview_lw is not None \
-             else int(gc.get("line_width", 4))
-        img = make_pill_image(state, snake_progress=snake_progress, line_width=lw)
+        img = make_pill_image(state, snake_progress=snake_progress,
+                              lw_px=self._lw_px())
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         self._photo = tk.PhotoImage(data=base64.b64encode(buf.getvalue()))
@@ -320,108 +287,92 @@ class HudOverlay:
             self._label.configure(image=self._photo)
         else:
             self._label = tk.Label(self._win, image=self._photo,
-                                   bg=_WIN_BG, borderwidth=0)
+                                   bg=_CHROMA_HEX, borderwidth=0)
             self._label.pack()
 
-    # ── Animations ───────────────────────────────────────────────────────────
+    # ── Animations ────────────────────────────────────────────────────────────
 
-    def _anim_fade_in(self, step: int = 0, steps: int = 15) -> None:
-        if not self._win or not self._win.winfo_exists():
-            return
-        self._win.attributes("-alpha", _WIN_ALPHA * (step + 1) / steps)
-        if step < steps - 1:
-            self._root.after(16, lambda: self._anim_fade_in(step + 1, steps))
+    def _anim_fade_in(self, step=0, steps=15):
+        if not self._win or not self._win.winfo_exists(): return
+        self._win.attributes("-alpha", _WIN_ALPHA*(step+1)/steps)
+        if step < steps-1:
+            self._root.after(16, lambda: self._anim_fade_in(step+1, steps))
 
-    def _anim_bounce(self, tx: int, ty: int, steps: int = 22) -> None:
-        pos_v   = self._hud_cfg().get("position_v", "top")
+    def _anim_bounce(self, tx, ty, steps=22):
+        pos_v   = self._hud_cfg().get("position_v", 5)
         sh      = self._root.winfo_screenheight()
-        start_y = sh + CH if pos_v == "bottom" else -CH
+        start_y = sh+CH if pos_v > 50 else -CH
 
-        def _ease(t: float) -> float:
+        def _ease(t):
             c1, c3 = 1.70158, 2.70158
-            return 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2
+            return 1 + c3*(t-1)**3 + c1*(t-1)**2
 
-        def _step(i: int) -> None:
-            if not self._win or not self._win.winfo_exists():
-                return
-            y = int(start_y + (ty - start_y) * _ease((i + 1) / steps))
+        def _step(i):
+            if not self._win or not self._win.winfo_exists(): return
+            y = int(start_y + (ty-start_y)*_ease((i+1)/steps))
             self._win.geometry(f"+{tx}+{y}")
-            if i < steps - 1:
-                self._root.after(16, lambda: _step(i + 1))
-
+            if i < steps-1:
+                self._root.after(16, lambda: _step(i+1))
         _step(0)
 
-    def _anim_snake(self, state: BatteryState,
-                    step: int = 0, steps: int = 0) -> None:
+    def _anim_snake(self, state, step=0, steps=0):
         if steps == 0:
-            gc    = self._config.data.get("glow", {}) if self._config else {}
+            gc    = self._glow_cfg()
+            spd   = max(0.25, self._anim_speed())
             speed = self._preview_speed if self._preview_speed is not None \
                     else gc.get("snake_speed", 600)
             perim = _pill_perim(W, H, R)
-            steps = max(20, min(120, int(perim / speed * 1000 / 16)))
-        if not self._win or not self._win.winfo_exists():
-            return
-        t = (step + 1) / steps
-        self._redraw(state, snake_progress=1 - (1 - t) ** 2)
-        if step < steps - 1:
-            self._root.after(16, lambda: self._anim_snake(state, step + 1, steps))
+            base  = max(20, min(120, int(perim/speed*1000/16)))
+            steps = max(8, int(base/spd))
+        if not self._win or not self._win.winfo_exists(): return
+        t = (step+1)/steps
+        self._redraw(state, snake_progress=1-(1-t)**2)
+        if step < steps-1:
+            self._root.after(16, lambda: self._anim_snake(state, step+1, steps))
 
-    # ── Dismiss / fade-out ────────────────────────────────────────────────────
+    # ── Dismiss ───────────────────────────────────────────────────────────────
 
-    def _schedule_dismiss(self) -> None:
+    def _schedule_dismiss(self):
         if self._dismiss_id:
             self._root.after_cancel(self._dismiss_id)
         self._dismiss_id = self._root.after(self.DISMISS_MS, self._start_fade)
 
-    def _start_fade(self) -> None:
+    def _start_fade(self):
         self._fade_step(self.FADE_STEPS)
 
-    def _fade_step(self, steps_left: int) -> None:
-        if not self._win or not self._win.winfo_exists():
-            return
-        if steps_left <= 0:
-            self._destroy()
-            return
+    def _fade_step(self, n):
+        if not self._win or not self._win.winfo_exists(): return
+        if n <= 0:
+            self._destroy(); return
         try:
-            self._win.attributes("-alpha", _WIN_ALPHA * steps_left / self.FADE_STEPS)
+            self._win.attributes("-alpha", _WIN_ALPHA*n/self.FADE_STEPS)
         except Exception:
             pass
-        self._root.after(self.FADE_MS, lambda: self._fade_step(steps_left - 1))
+        self._root.after(self.FADE_MS, lambda: self._fade_step(n-1))
 
-    def _destroy(self) -> None:
+    def _destroy(self):
         if self._dismiss_id:
             self._root.after_cancel(self._dismiss_id)
             self._dismiss_id = None
         if self._win and self._win.winfo_exists():
             self._win.destroy()
-        self._win   = None
-        self._label = None
-
+        self._win = self._label = None
 
 # ── BatteryState display helpers ───────────────────────────────────────────────
 
-def hud_title(state: BatteryState) -> str:
-    if not state.has_battery:
-        return "No Battery"
-    if state.is_full:
-        return "Fully Charged"
-    if state.is_charging:
-        return f"Charging — {state.percent}%"
+def hud_title(state):
+    if not state.has_battery: return "No Battery"
+    if state.is_full:         return "Fully Charged"
+    if state.is_charging:     return f"Charging — {state.percent}%"
     return f"{state.percent}% Remaining"
 
-
-def hud_subtitle(state: BatteryState) -> str:
-    if not state.has_battery:
-        return "No battery detected"
-    if state.is_full:
-        return "Battery is full"
-    if not state.is_charging and state.percent <= 5:
-        return "Connect charger immediately"
-    if state.seconds_remaining is None:
-        return "Calculating..."
+def hud_subtitle(state):
+    if not state.has_battery:                         return "No battery detected"
+    if state.is_full:                                 return "Battery is full"
+    if not state.is_charging and state.percent <= 5:  return "Connect charger immediately"
+    if state.seconds_remaining is None:               return "Calculating..."
     label = "until full" if state.is_charging else "until empty"
     return f"{state.time_remaining_text} {label}"
-
 
 BatteryState.HUD_title    = property(hud_title)
 BatteryState.HUD_subtitle = property(hud_subtitle)

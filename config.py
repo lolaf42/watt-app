@@ -22,14 +22,15 @@ DEFAULT: dict = {
     "notification_sound": True,
     "glow": {
         "snake_speed":       600,   # px/s  (200–1500)
-        "line_width":          4,   # px    (1–12)
+        "line_width_pct":    120,   # %     (30–360, 30%=1px)
         "border_intensity":  100,   # %     (0–100)
         "border_duration":   3.0,   # s     (0.5–8)
     },
     "hud": {
-        "position_v":  "top",     # top / center / bottom
-        "position_h":  "center",  # left / center / right
-        "animation":   "bounce",  # none / fade / bounce / fill
+        "position_v":       5,        # 0 (top) – 100 (bottom)
+        "position_h":      50,        # 0 (left) – 100 (right)
+        "animation":   "bounce",      # none / fade / bounce
+        "anim_speed":     1.0,        # multiplier 0.25 – 3.0
     },
 }
 

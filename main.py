@@ -404,16 +404,28 @@ def _open_settings() -> None:
     if _settings_win and _settings_win.winfo_exists():
         _settings_win.lift()
         return
-    def _hud_preview(speed: int, lw: int) -> None:
-        if not _hud:
-            return
-        with _state_lock:
-            s = _state
-        _hud.preview_show(s, snake_speed=speed, line_width=lw)
 
-    _settings_win = SettingsWindow(_root, _config, lambda: _alerts.reset(),
-                                   lambda cfg: _glow.preview(cfg),
-                                   on_hud_preview=_hud_preview)
+    def _hud_preview(speed: int, lw_pct: int, anim_speed: float) -> None:
+        if not _hud: return
+        _config.data.setdefault("hud", {})["anim_speed"] = anim_speed
+        with _state_lock: s = _state
+        _hud.preview_show(s, snake_speed=speed, line_width_pct=lw_pct)
+
+    def _pos_preview() -> None:
+        if not _hud: return
+        with _state_lock: s = _state
+        _hud.preview_show(s)
+
+    def _glow_preview(cfg: dict) -> None:
+        if _glow: _glow.preview(cfg)
+
+    _settings_win = SettingsWindow(
+        _root, _config,
+        on_save=lambda: _alerts.reset(),
+        on_preview=_glow_preview,
+        on_hud_preview=_hud_preview,
+        on_pos_preview=_pos_preview,
+    )
 
 
 def _on_quit(_icon=None, _item=None) -> None:
