@@ -353,7 +353,8 @@ def _poll() -> None:
             if _glow:
                 was_charging = _prev_state.is_charging if _prev_state else False
                 if new.is_charging and not was_charging:
-                    _glow.show((0, 170, 0))
+                    color = (0, 170, 0) if new.percent > 75 else (255, 140, 0)
+                    _glow.show(color)
                 elif not new.is_charging and was_charging:
                     _glow.hide()
 
@@ -439,7 +440,8 @@ def main() -> None:
 
     # Start glow if already charging on launch
     if _glow and _state.has_battery and _state.is_charging:
-        _glow.show((0, 170, 0))
+        color = (0, 170, 0) if _state.percent > 75 else (255, 140, 0)
+        _glow.show(color)
 
     logger.info("Watt started — %s", _state.status_text)
     try:
