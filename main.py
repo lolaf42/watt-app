@@ -90,7 +90,7 @@ def make_tray_icon(state: BatteryState) -> Image.Image:
     return img
 
 
-APP_VERSION = "v1.3.0"
+APP_VERSION = "v1.4.0"
 
 # Add computed display properties to BatteryState
 def _temp_status(s: BatteryState) -> str:
