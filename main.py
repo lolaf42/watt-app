@@ -172,21 +172,36 @@ def _poll() -> None:
 
 
 def _watch_charging() -> None:
-    """Fast loop (2s) that detects charger plug/unplug and triggers glow + HUD."""
-    prev_charging: Optional[bool] = None
+    """Fast loop (2s) that detects charger plug/unplug and triggers glow + HUD.
+
+    Debounced: state must be stable for 2 consecutive reads before triggering,
+    preventing repeated notifications from hardware reporting fluctuations.
+    """
+    confirmed: Optional[bool] = None   # last confirmed stable state
+    candidate: Optional[bool] = None   # state seen in last read
+    candidate_count: int = 0
+
     while True:
         try:
             s = get_battery_state()
-            if prev_charging is not None and s.is_charging != prev_charging:
-                logger.info("Charging state changed → is_charging=%s", s.is_charging)
+
+            if s.is_charging == candidate:
+                candidate_count += 1
+            else:
+                candidate       = s.is_charging
+                candidate_count = 1
+
+            if candidate_count >= 2 and candidate != confirmed:
+                confirmed = candidate
+                logger.info("Charging state stable → is_charging=%s", confirmed)
                 if _glow:
-                    if s.is_charging:
+                    if confirmed:
                         _glow.show(charge_color(s.percent))
                     else:
                         _glow.hide()
-                if s.is_charging and _hud:
-                    _hud._launch(s)   # subprocess.Popen — safe from any thread
-            prev_charging = s.is_charging
+                if confirmed and _hud:
+                    _hud._launch(s)
+
         except Exception:
             logger.exception("_watch_charging error")
         time.sleep(2)

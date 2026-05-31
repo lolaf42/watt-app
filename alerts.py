@@ -1,8 +1,6 @@
 """Alert state machine: fires once per threshold crossing, resets with hysteresis."""
 
 import logging
-from typing import Optional
-
 from battery import BatteryState
 from config import ConfigManager
 from i18n import t
@@ -17,7 +15,6 @@ class AlertManager:
         self._config = config
         self._fired_low: set[int] = set()
         self._fired_high: set[int] = set()
-        self._prev_plugged: Optional[bool] = None
 
     def reset(self):
         self._fired_low.clear()
@@ -35,8 +32,6 @@ class AlertManager:
         cfg = self._config.data
         ac = cfg.get("alerts", {})
         th = cfg.get("thresholds", {})
-
-        self._prev_plugged = state.is_plugged
 
         # ── Low thresholds (discharging below %) ────────────────────────────
         if ac.get("threshold_low", True) and not state.is_charging:
