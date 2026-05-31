@@ -42,6 +42,7 @@ _hud: Optional[HudOverlay] = None
 _glow: Optional[ScreenGlow] = None
 _popup: Optional[tk.Toplevel] = None
 _settings_win: Optional[SettingsWindow] = None
+_popup_opened_at: float = 0.0   # timestamp of last popup open
 
 # Thread-safe queue for cross-thread popup requests
 _popup_queue: queue.Queue = queue.Queue()
@@ -211,8 +212,13 @@ def _watch_charging() -> None:
 
 
 def _show_popup(icon_x: int = 0, icon_y: int = 0) -> None:
-    global _popup
+    global _popup, _popup_opened_at
+    now = time.time()
     if _popup and _popup.winfo_exists():
+        # Ignore close request if popup was just opened (<500 ms ago)
+        # — prevents GNOME sending Activate+ContextMenu for one click
+        if now - _popup_opened_at < 0.5:
+            return
         _popup.destroy()
         _popup = None
         return
@@ -220,9 +226,16 @@ def _show_popup(icon_x: int = 0, icon_y: int = 0) -> None:
         state = _state
     x = icon_x or (_root.winfo_pointerx() if _root else 0)
     y = icon_y or (_root.winfo_pointery() if _root else 0)
+
+    def _current_state():
+        with _state_lock:
+            return _state
+
     _popup = BatteryPopup(_root, state, click_x=x, click_y=y,
                           on_settings=_on_settings, on_quit=_on_quit,
-                          app_version=APP_VERSION)
+                          app_version=APP_VERSION,
+                          state_fn=_current_state)
+    _popup_opened_at = now
 
 
 def _on_settings(_icon=None, _item=None) -> None:

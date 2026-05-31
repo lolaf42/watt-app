@@ -162,7 +162,7 @@ class HudOverlay:
         pos_v = cfg.get("position_v", 5)
         sw    = self._root.winfo_screenwidth()
         sh    = self._root.winfo_screenheight()
-        mt, mb = 40, 60
+        mt, mb = 60, 60
         cw, ch = 344, 76
         x = (sw - cw) // 2          # always centered horizontally
         y = mt + int((sh - ch - mt - mb) * pos_v / 100)

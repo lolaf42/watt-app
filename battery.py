@@ -22,6 +22,7 @@ class BatteryState:
     health_percent: Optional[float] = None
     cycle_count: Optional[int] = None
     temperature_celsius: Optional[float] = None
+    temperature_is_battery: bool = False   # True = real battery temp, False = board/system
     voltage_mv: Optional[int] = None
     current_ma: Optional[int] = None
     power_watts: Optional[float] = None
@@ -83,6 +84,25 @@ def _read_int(path: str) -> Optional[int]:
         return None
 
 
+def _read_board_temp() -> Optional[float]:
+    """Read chassis/board ambient temperature from hwmon (cros_ec local sensor, etc.)."""
+    try:
+        base = "/sys/class/hwmon"
+        for dev in sorted(os.listdir(base)):
+            name = _read(f"{base}/{dev}/name") or ""
+            # Framework EC: local_f75303 is the board ambient sensor
+            if name == "cros_ec":
+                for i in range(1, 6):
+                    label = _read(f"{base}/{dev}/temp{i}_label") or ""
+                    if "local" in label.lower():
+                        raw = _read_int(f"{base}/{dev}/temp{i}_input")
+                        if raw and 5_000 < raw < 90_000:
+                            return raw / 1000.0
+    except Exception:
+        pass
+    return None
+
+
 def _find_battery() -> Optional[str]:
     try:
         for name in sorted(os.listdir(_SYS_PS)):
@@ -123,22 +143,25 @@ def _get_linux_battery() -> BatteryState:
     is_full = status == "Full" or capacity >= 99
     is_plugged = is_charging or is_full
 
-    # Energy (µWh) preferred; fall back to charge (µAh) × voltage
+    # Energy (µWh) preferred; fall back to charge (µAh) × nominal voltage
     e_now = _read_int(os.path.join(bat, "energy_now"))
     e_full = _read_int(os.path.join(bat, "energy_full"))
     e_design = _read_int(os.path.join(bat, "energy_full_design"))
 
     if e_now is None:
-        c_now = _read_int(os.path.join(bat, "charge_now"))
-        c_full = _read_int(os.path.join(bat, "charge_full"))
+        c_now    = _read_int(os.path.join(bat, "charge_now"))
+        c_full   = _read_int(os.path.join(bat, "charge_full"))
         c_design = _read_int(os.path.join(bat, "charge_full_design"))
-        v_now = _read_int(os.path.join(bat, "voltage_now")) or 3_700_000
+        # Use nominal (design) voltage for accurate Wh — matches upower
+        v_nom = (_read_int(os.path.join(bat, "voltage_min_design"))
+                 or _read_int(os.path.join(bat, "voltage_now"))
+                 or 3_700_000)
         if c_now is not None:
-            e_now = c_now * v_now // 1_000_000
+            e_now = c_now * v_nom // 1_000_000
         if c_full is not None:
-            e_full = c_full * v_now // 1_000_000
+            e_full = c_full * v_nom // 1_000_000
         if c_design is not None:
-            e_design = c_design * v_now // 1_000_000
+            e_design = c_design * v_nom // 1_000_000
 
     health = None
     if e_full and e_design and e_design > 0:
@@ -153,10 +176,12 @@ def _get_linux_battery() -> BatteryState:
         elif not is_charging:
             seconds = int(e_now * 3600 / p_now)
 
-    temp_raw = _read_int(os.path.join(bat, "temp"))
+    temp_raw  = _read_int(os.path.join(bat, "temp"))
+    temp_c    = (temp_raw / 10.0 if temp_raw is not None
+                 else _read_board_temp())
     v_now_raw = _read_int(os.path.join(bat, "voltage_now"))
     c_now_raw = _read_int(os.path.join(bat, "current_now"))
-    cycle = _read_int(os.path.join(bat, "cycle_count"))
+    cycle     = _read_int(os.path.join(bat, "cycle_count"))
 
     return BatteryState(
         has_battery=True,
@@ -167,7 +192,8 @@ def _get_linux_battery() -> BatteryState:
         seconds_remaining=seconds,
         health_percent=health,
         cycle_count=cycle,
-        temperature_celsius=temp_raw / 10.0 if temp_raw is not None else None,
+        temperature_celsius=temp_c,
+        temperature_is_battery=(temp_raw is not None),
         voltage_mv=v_now_raw // 1000 if v_now_raw else None,
         current_ma=c_now_raw // 1000 if c_now_raw else None,
         power_watts=(p_now / 1_000_000 if p_now
