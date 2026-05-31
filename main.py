@@ -2,13 +2,14 @@
 """Watt — System tray battery monitor for Windows and Ubuntu 24.04 LTS."""
 
 import logging
+import queue
 import threading
 import time
 import tkinter as tk
 from typing import Optional
 
-import pystray
 from PIL import Image, ImageDraw
+from sni_tray import SNITray
 
 from alerts import AlertManager
 import i18n
@@ -17,6 +18,7 @@ from battery import BatteryState, get_battery_state
 from config import ConfigManager
 from hud import HudOverlay, charge_color
 from notifier import send_notification
+from popup import BatteryPopup
 from screen_glow import ScreenGlow
 from settings_window import SettingsWindow
 
@@ -34,12 +36,15 @@ _alerts = AlertManager(_config)
 _state: BatteryState = BatteryState()
 _state_lock = threading.Lock()
 
-_tray: Optional[pystray.Icon] = None
+_tray: Optional[SNITray] = None
 _root: Optional[tk.Tk] = None
 _hud: Optional[HudOverlay] = None
 _glow: Optional[ScreenGlow] = None
 _popup: Optional[tk.Toplevel] = None
 _settings_win: Optional[SettingsWindow] = None
+
+# Thread-safe queue for cross-thread popup requests
+_popup_queue: queue.Queue = queue.Queue()
 
 
 # ── Tray icon generation ───────────────────────────────────────────────────────
@@ -85,315 +90,7 @@ def make_tray_icon(state: BatteryState) -> Image.Image:
     return img
 
 
-APP_VERSION = "v1.2.0"
-
-# ── Battery popup window ───────────────────────────────────────────────────────
-
-class BatteryPopup(tk.Toplevel):
-    W    = 320
-    BGD  = "#0B1015"
-    BGC  = "#111820"
-    BGC2 = "#182030"
-    FGW  = "#FFFFFF"
-    DIM  = "#5A6475"
-    GRN  = "#3CC050"
-    YLW  = "#D4A017"
-    BLU  = "#4A90E2"
-    RED  = "#CC2222"
-    SEP  = "#1A2535"
-
-    def __init__(self, parent: tk.Tk, state: BatteryState, click_x: int = 0, click_y: int = 0):
-        super().__init__(parent)
-        self.overrideredirect(True)
-        self.attributes("-topmost", True)
-        self.configure(bg=self.BGD)
-        self.attributes("-alpha", 0.96)
-        self._build(state)
-        self.update_idletasks()
-        sw = self.winfo_screenwidth()
-        sh = self.winfo_screenheight()
-        w  = self.winfo_reqwidth()
-        h  = self.winfo_reqheight()
-        # Position near the tray icon (click position)
-        x = max(0, min(click_x - w // 2, sw - w - 8))
-        y = click_y - h - 8 if click_y > sh // 2 else click_y + 8
-        y = max(0, min(y, sh - h - 8))
-        self.geometry(f"+{x}+{y}")
-        self.bind("<FocusOut>", lambda _e: self.destroy())
-        self.focus_force()
-
-    # ── Helpers ───────────────────────────────────────────────────────────────
-
-    def _div(self, pady=0):
-        tk.Frame(self, bg=self.SEP, height=1).pack(fill="x", pady=pady)
-
-    def _bar(self, parent, pct, color, w=None, h=4):
-        import base64, io
-        from PIL import Image as PI, ImageDraw as PD
-        bw = (w or self.W - 40)
-        bg = tuple(int(self.SEP[i:i+2], 16) for i in (1, 3, 5))
-        fc = tuple(int(color[i:i+2], 16) for i in (1, 3, 5))
-        img = PI.new("RGB", (bw, h), bg)
-        fill = max(0, int(bw * min(pct, 100) / 100))
-        if fill > 0:
-            PD.Draw(img).rounded_rectangle([0, 0, fill-1, h-1], radius=2, fill=fc)
-        buf = io.BytesIO(); img.save(buf, format="PNG")
-        ph = tk.PhotoImage(data=base64.b64encode(buf.getvalue()))
-        lbl = tk.Label(parent, image=ph, bg=parent["bg"], borderwidth=0)
-        lbl.image = ph
-        lbl.pack(anchor="w", pady=(4, 0))
-
-    def _card(self, icon, icon_col, title) -> tk.Frame:
-        outer = tk.Frame(self, bg=self.BGC)
-        outer.pack(fill="x", padx=10, pady=3)
-        hdr = tk.Frame(outer, bg=self.BGC)
-        hdr.pack(fill="x", padx=12, pady=(10, 6))
-        tk.Label(hdr, text=icon, bg=self.BGC, fg=icon_col,
-                 font=("Segoe UI", 11)).pack(side="left")
-        tk.Label(hdr, text=f"  {title}", bg=self.BGC, fg=self.FGW,
-                 font=("Segoe UI", 10, "bold")).pack(side="left")
-        tk.Label(hdr, text="ⓘ", bg=self.BGC, fg=self.DIM,
-                 font=("Segoe UI", 9)).pack(side="right")
-        body = tk.Frame(outer, bg=self.BGC)
-        body.pack(fill="x", padx=12, pady=(0, 10))
-        return body
-
-    def _kv(self, parent, key, val, vc=None):
-        f = tk.Frame(parent, bg=parent["bg"])
-        f.pack(fill="x", pady=2)
-        tk.Label(f, text=key, bg=parent["bg"], fg=self.DIM,
-                 font=("Segoe UI", 9), anchor="w").pack(side="left")
-        tk.Label(f, text=val, bg=parent["bg"], fg=vc or self.FGW,
-                 font=("Segoe UI", 10, "bold"), anchor="e").pack(side="right")
-
-    def _kv2(self, parent, k1, v1, c1, k2, v2, c2, sub2=""):
-        f = tk.Frame(parent, bg=parent["bg"])
-        f.pack(fill="x", pady=3)
-        lf = tk.Frame(f, bg=parent["bg"])
-        lf.pack(side="left", expand=True, fill="x")
-        rf = tk.Frame(f, bg=parent["bg"])
-        rf.pack(side="right", expand=True, fill="x")
-        tk.Label(lf, text=k1, bg=parent["bg"], fg=self.DIM,
-                 font=("Segoe UI", 8), anchor="w").pack(anchor="w")
-        tk.Label(lf, text=v1, bg=parent["bg"], fg=c1,
-                 font=("Segoe UI", 14, "bold")).pack(anchor="w")
-        tk.Label(rf, text=k2, bg=parent["bg"], fg=c2,
-                 font=("Segoe UI", 9, "bold"), anchor="e").pack(anchor="e")
-        tk.Label(rf, text=v2, bg=parent["bg"], fg=self.DIM,
-                 font=("Segoe UI", 8), anchor="e").pack(anchor="e")
-
-    @staticmethod
-    def _mah(mwh, voltage_mv):
-        if voltage_mv and voltage_mv > 0:
-            return f"{int(mwh * 1000 / voltage_mv):,} mAh"
-        return f"{mwh / 1000:.3f} Wh"
-
-    def _footer_btn(self, text, cmd, col, arrow=True, sub=""):
-        tk.Frame(self, bg=self.SEP, height=1).pack(fill="x")
-        f = tk.Frame(self, bg=self.BGD, cursor="hand2")
-        f.pack(fill="x")
-        f.bind("<Button-1>", lambda _: cmd())
-        f.bind("<Enter>", lambda _: f.configure(bg=self.BGC2))
-        f.bind("<Leave>", lambda _: f.configure(bg=self.BGD))
-        inner = tk.Frame(f, bg=self.BGD)
-        inner.pack(fill="x", padx=14, pady=7)
-        tk.Label(inner, text=text, bg=self.BGD, fg=col,
-                 font=("Segoe UI", 10), anchor="w").pack(side="left")
-        if arrow:
-            tk.Label(inner, text=">", bg=self.BGD, fg=self.DIM,
-                     font=("Segoe UI", 10)).pack(side="right")
-        elif sub:
-            tk.Label(inner, text=sub, bg=self.BGD, fg=self.DIM,
-                     font=("Segoe UI", 9)).pack(side="right")
-        # propagate hover to children
-        for w in inner.winfo_children():
-            w.bind("<Button-1>", lambda _, c=cmd: c())
-            w.bind("<Enter>", lambda _, ff=f: ff.configure(bg=self.BGC2))
-            w.bind("<Leave>", lambda _, ff=f: ff.configure(bg=self.BGD))
-
-    # ── Build ─────────────────────────────────────────────────────────────────
-
-    def _build(self, s: BatteryState) -> None:
-        import base64, io
-        from PIL import Image as PI, ImageDraw as PD
-
-        accent = (self.GRN if (s.is_charging or s.is_full)
-                  else self.RED if s.percent <= 20
-                  else "#FFA000" if s.percent <= 50
-                  else self.GRN)
-        ac_rgb = tuple(int(accent[i:i+2], 16) for i in (1, 3, 5))
-
-        # ── Header ────────────────────────────────────────────────────────────
-        hf = tk.Frame(self, bg=self.BGD)
-        hf.pack(fill="x", padx=16, pady=(16, 4))
-
-        nr = tk.Frame(hf, bg=self.BGD)
-        nr.pack(anchor="w")
-        tk.Label(nr, text=f"{s.percent}" if s.has_battery else "—",
-                 bg=self.BGD, fg=accent,
-                 font=("Segoe UI", 48, "bold")).pack(side="left")
-        tk.Label(nr, text=" %", bg=self.BGD, fg=accent,
-                 font=("Segoe UI", 22)).pack(side="left", anchor="s", pady=16)
-
-        icon = "⚡" if s.is_charging else ("🪫" if s.percent <= 10 else "🔋")
-        status_str = (t("status.charging") if s.is_charging else
-                      t("status.full") if s.is_full else t("status.discharging"))
-        sr = tk.Frame(hf, bg=self.BGD)
-        sr.pack(anchor="w")
-        tk.Label(sr, text=f"{icon}  {status_str}", bg=self.BGD, fg=accent,
-                 font=("Segoe UI", 13)).pack(side="left")
-        if s.has_battery and s.seconds_remaining is not None:
-            suf = t("popup.until_full") if s.is_charging else t("popup.remaining_lbl")
-            tk.Label(hf, text=f"{s.time_remaining_text} {suf}",
-                     bg=self.BGD, fg=self.DIM, font=("Segoe UI", 9)).pack(anchor="w", pady=(2, 0))
-
-        # Progress bar
-        bw = self.W - 32
-        bi = PI.new("RGB", (bw, 6), tuple(int(self.SEP[i:i+2], 16) for i in (1, 3, 5)))
-        if s.has_battery and s.percent > 0:
-            PD.Draw(bi).rounded_rectangle(
-                [0, 0, int(bw * s.percent / 100) - 1, 5], radius=3, fill=ac_rgb)
-        buf = io.BytesIO(); bi.save(buf, format="PNG")
-        ph = tk.PhotoImage(data=base64.b64encode(buf.getvalue()))
-        bar = tk.Label(self, image=ph, bg=self.BGD, borderwidth=0)
-        bar.image = ph
-        bar.pack(padx=16, pady=(8, 12))
-
-        # ── Battery Information divider ───────────────────────────────────────
-        self._div()
-        inf_f = tk.Frame(self, bg=self.BGD)
-        inf_f.pack(fill="x", padx=12, pady=(6, 4))
-        tk.Label(inf_f, text="●", bg=self.BGD, fg=self.BLU,
-                 font=("Segoe UI", 8)).pack(side="left")
-        tk.Label(inf_f, text="  Battery Information", bg=self.BGD, fg=self.DIM,
-                 font=("Segoe UI", 9, "bold")).pack(side="left")
-        tk.Label(inf_f, text="∧", bg=self.BGD, fg=self.DIM,
-                 font=("Segoe UI", 9)).pack(side="right")
-        self._div()
-
-        # ── Battery Health ────────────────────────────────────────────────────
-        if s.health_percent is not None:
-            hc  = self.YLW if s.health_percent < 80 else self.GRN
-            ico = "⚠" if s.health_percent < 80 else "✓"
-            body = self._card(ico, hc, t("popup.health"))
-
-            hr = tk.Frame(body, bg=self.BGC)
-            hr.pack(fill="x")
-            lf = tk.Frame(hr, bg=self.BGC)
-            lf.pack(side="left")
-            tk.Label(lf, text=f"{s.health_percent:.0f}%",
-                     bg=self.BGC, fg=hc,
-                     font=("Segoe UI", 24, "bold")).pack(side="left")
-            tk.Label(lf, text=f"  {s.health_label}",
-                     bg=self.BGC, fg=hc,
-                     font=("Segoe UI", 12)).pack(side="left", anchor="s", pady=6)
-
-            if s.cycle_count is not None:
-                rf2 = tk.Frame(hr, bg=self.BGC)
-                rf2.pack(side="right", anchor="ne")
-                tk.Label(rf2, text=f"{s.cycle_count:,}",
-                         bg=self.BGC, fg=self.FGW,
-                         font=("Segoe UI", 13, "bold"), anchor="e").pack(anchor="e")
-                tk.Label(rf2, text=t("popup.cycle"), bg=self.BGC, fg=self.DIM,
-                         font=("Segoe UI", 8), anchor="e").pack(anchor="e")
-
-            self._bar(body, s.health_percent, hc, w=self.W-40)
-
-            if s.health_percent < 80:
-                tk.Frame(body, bg=self.SEP, height=1).pack(fill="x", pady=(6, 4))
-                tk.Label(body, text=t("popup.service"), bg=self.BGC, fg=self.DIM,
-                         font=("Segoe UI", 8), wraplength=self.W-50,
-                         anchor="w").pack(anchor="w")
-
-        # ── Temperature ───────────────────────────────────────────────────────
-        if s.temperature_celsius is not None:
-            tc = (self.RED if s.temperature_celsius >= 50
-                  else "#FFA000" if s.temperature_celsius >= 40 else self.GRN)
-            body = self._card("✓", tc, t("popup.temp"))
-            tr = tk.Frame(body, bg=self.BGC)
-            tr.pack(fill="x")
-            lf = tk.Frame(tr, bg=self.BGC)
-            lf.pack(side="left")
-            tk.Label(lf, text=f"🌡 {s.temperature_celsius:.1f}°C",
-                     bg=self.BGC, fg=tc, font=("Segoe UI", 18, "bold")).pack(anchor="w")
-            tk.Label(lf, text=f"   {s.temperature_celsius*9/5+32:.1f}°F",
-                     bg=self.BGC, fg=self.DIM, font=("Segoe UI", 10)).pack(anchor="w")
-            rf2 = tk.Frame(tr, bg=self.BGC)
-            rf2.pack(side="right", anchor="ne")
-            sc = self.GRN if s.temperature_celsius < 40 else "#FFA000"
-            label_n = "● Normal" if s.temperature_celsius < 40 else "● High"
-            tk.Label(rf2, text=label_n, bg=self.BGC, fg=sc,
-                     font=("Segoe UI", 10, "bold"), anchor="e").pack(anchor="e")
-            tk.Label(rf2,
-                     text=t("popup.optimal") if s.temperature_celsius < 40 else t("popup.high_temp"),
-                     bg=self.BGC, fg=self.DIM, font=("Segoe UI", 8), anchor="e").pack(anchor="e")
-
-        # ── Power & Electrical ────────────────────────────────────────────────
-        if s.voltage_mv is not None or s.power_watts is not None:
-            body = self._card("⚡", self.GRN, t("popup.power"))
-            f = tk.Frame(body, bg=self.BGC)
-            f.pack(fill="x", pady=2)
-            lf = tk.Frame(f, bg=self.BGC)
-            lf.pack(side="left", expand=True, fill="x")
-            rf2 = tk.Frame(f, bg=self.BGC)
-            rf2.pack(side="right", expand=True, fill="x")
-            tk.Label(lf, text=t("popup.power_usage"), bg=self.BGC, fg=self.DIM,
-                     font=("Segoe UI", 9), anchor="w").pack(anchor="w")
-            tk.Label(lf,
-                     text=f"{s.power_watts:.1f} W" if s.power_watts is not None else "N/A",
-                     bg=self.BGC, fg=self.FGW,
-                     font=("Segoe UI", 16, "bold")).pack(anchor="w")
-            tk.Label(rf2, text=t("popup.voltage"), bg=self.BGC, fg=self.DIM,
-                     font=("Segoe UI", 9), anchor="e").pack(anchor="e")
-            tk.Label(rf2,
-                     text=f"{s.voltage_mv/1000:.2f} V" if s.voltage_mv else "N/A",
-                     bg=self.BGC, fg=self.FGW,
-                     font=("Segoe UI", 16, "bold"), anchor="e").pack(anchor="e")
-
-            f2 = tk.Frame(body, bg=self.BGC)
-            f2.pack(fill="x", pady=2)
-            lf2 = tk.Frame(f2, bg=self.BGC)
-            lf2.pack(side="left", expand=True, fill="x")
-            rf3 = tk.Frame(f2, bg=self.BGC)
-            rf3.pack(side="right", expand=True, fill="x")
-            cc = self.GRN if s.is_charging else self.DIM
-            chg_txt = (f"⚡ {t('popup.charging')}" if s.is_charging
-                       else t("popup.discharging"))
-            tk.Label(lf2, text=t("popup.current"), bg=self.BGC, fg=self.DIM,
-                     font=("Segoe UI", 9), anchor="w").pack(anchor="w")
-            cur_row = tk.Frame(lf2, bg=self.BGC)
-            cur_row.pack(anchor="w")
-            tk.Label(cur_row,
-                     text=f"{s.current_ma:,} mA" if s.current_ma else "N/A",
-                     bg=self.BGC, fg=self.FGW,
-                     font=("Segoe UI", 15, "bold")).pack(side="left")
-            if s.is_charging:
-                tk.Label(cur_row, text=" ●", bg=self.BGC, fg=self.GRN,
-                         font=("Segoe UI", 8)).pack(side="left", anchor="s", pady=3)
-            tk.Label(rf3, text=chg_txt, bg=self.BGC, fg=cc,
-                     font=("Segoe UI", 9, "bold"), anchor="e").pack(anchor="e")
-            tk.Label(rf3, text=t("popup.normal_v"), bg=self.BGC, fg=self.DIM,
-                     font=("Segoe UI", 8), anchor="e").pack(anchor="e")
-
-        # ── Capacity Details ──────────────────────────────────────────────────
-        if s.remaining_mwh is not None:
-            body = self._card("══", self.BLU, t("popup.capacity"))
-            self._kv(body, t("popup.remaining"),
-                     self._mah(s.remaining_mwh, s.voltage_mv), self.GRN)
-            if s.full_capacity_mwh:
-                self._kv(body, t("popup.curr_full"),
-                         self._mah(s.full_capacity_mwh, s.voltage_mv), self.BLU)
-            if s.design_capacity_mwh:
-                self._kv(body, t("popup.design"),
-                         self._mah(s.design_capacity_mwh, s.voltage_mv), self.DIM)
-
-        # ── Footer ────────────────────────────────────────────────────────────
-        tk.Frame(self, bg=self.SEP, height=1).pack(fill="x", pady=(8, 0))
-        self._footer_btn(t("popup.settings"), _on_settings, self.FGW, arrow=True)
-        self._footer_btn("🔋  Battery Settings...", lambda: None, self.DIM, arrow=True)
-        self._footer_btn(t("popup.quit"), _on_quit, self.RED,
-                         arrow=False, sub=APP_VERSION)
-
+APP_VERSION = "v1.3.0"
 
 # Add computed display properties to BatteryState
 def _temp_status(s: BatteryState) -> str:
@@ -442,17 +139,26 @@ def _poll() -> None:
             new = get_battery_state()
 
             fired = _alerts.check(new)
-            for title, msg in fired:
+            for title, msg, level in fired:
+                # HUD is the primary alert notification
+                if _hud:
+                    _hud.show_alert(new, level, title, msg)
+                # Screen glow for low battery
+                if (_config.data.get("alerts", {}).get("glow_on_low", True)
+                        and not new.is_charging and _glow):
+                    color = (220, 30, 20) if level == "critical" else (210, 110, 0)
+                    _glow.show(color)
+                # Keep system notification as fallback
                 send_notification(title, msg)
 
             # Tray icon + tooltip
             if _tray:
-                _tray.icon = make_tray_icon(new)
-                _tray.title = (t("tray.title", pct=new.percent, status=new.status_text)
-                               if new.has_battery else t("tray.no_battery"))
+                _tray.set_icon(make_tray_icon(new))
+                _tray.set_title(t("tray.title", pct=new.percent, status=new.status_text)
+                                if new.has_battery else t("tray.no_battery"))
 
-            # HUD overlay
-            if _should_show_hud(new, _prev_state) and _hud:
+            # HUD overlay for charging-state changes (non-alert)
+            if not fired and _should_show_hud(new, _prev_state) and _hud:
                 _hud.show(new)
 
             with _state_lock:
@@ -466,32 +172,30 @@ def _poll() -> None:
 
 
 def _watch_charging() -> None:
-    """Fast loop (2s) that detects charger plug/unplug and triggers glow immediately."""
+    """Fast loop (2s) that detects charger plug/unplug and triggers glow + HUD."""
     prev_charging: Optional[bool] = None
     while True:
         try:
             s = get_battery_state()
             if prev_charging is not None and s.is_charging != prev_charging:
+                logger.info("Charging state changed → is_charging=%s", s.is_charging)
                 if _glow:
                     if s.is_charging:
                         _glow.show(charge_color(s.percent))
                     else:
                         _glow.hide()
-                if _hud and s.is_charging:
-                    _hud.show(s)
+                if s.is_charging and _hud:
+                    _hud._launch(s)   # subprocess.Popen — safe from any thread
             prev_charging = s.is_charging
         except Exception:
-            pass
+            logger.exception("_watch_charging error")
         time.sleep(2)
 
 
 # ── Tray callbacks ─────────────────────────────────────────────────────────────
 
-def _on_details(_icon=None, _item=None) -> None:
-    _root.after(0, _show_popup)
 
-
-def _show_popup() -> None:
+def _show_popup(icon_x: int = 0, icon_y: int = 0) -> None:
     global _popup
     if _popup and _popup.winfo_exists():
         _popup.destroy()
@@ -499,8 +203,11 @@ def _show_popup() -> None:
         return
     with _state_lock:
         state = _state
-    mx, my = _root.winfo_pointerxy() if _root else (0, 0)
-    _popup = BatteryPopup(_root, state, click_x=mx, click_y=my)
+    x = icon_x or (_root.winfo_pointerx() if _root else 0)
+    y = icon_y or (_root.winfo_pointery() if _root else 0)
+    _popup = BatteryPopup(_root, state, click_x=x, click_y=y,
+                          on_settings=_on_settings, on_quit=_on_quit,
+                          app_version=APP_VERSION)
 
 
 def _on_settings(_icon=None, _item=None) -> None:
@@ -514,8 +221,12 @@ def _open_settings() -> None:
         return
 
     def _hud_preview(speed: int, lw_pct: int, anim_speed: float) -> None:
-        if not _hud: return
-        _config.data.setdefault("hud", {})["anim_speed"] = anim_speed
+        if not _hud or not _settings_win: return
+        hud_cfg = _config.data.setdefault("hud", {})
+        hud_cfg["anim_speed"]   = anim_speed
+        hud_cfg["animation"]    = _settings_win._v_anim.get()
+        hud_cfg["bg_lightness"] = _settings_win._v_bg_light.get()
+        hud_cfg["win_alpha"]    = _settings_win._v_win_alpha.get()
         with _state_lock: s = _state
         _hud.preview_show(s, snake_speed=speed, line_width_pct=lw_pct)
 
@@ -557,21 +268,27 @@ def main() -> None:
     _hud  = HudOverlay(_root, _config)
     _glow = ScreenGlow(_root, _config)
 
-    # Left-click opens popup directly (default=True, visible=False)
-    # Fallback right-click menu keeps Settings + Quit
-    menu = pystray.Menu(
-        pystray.MenuItem(t("tray.details"), _on_details,
-                         default=True, visible=False),
-        pystray.MenuItem(t("tray.settings"), _on_settings),
-        pystray.Menu.SEPARATOR,
-        pystray.MenuItem(t("tray.quit"), _on_quit),
-    )
-    _tray = pystray.Icon(
+    _tray = SNITray(
         "watt",
-        icon=make_tray_icon(_state),
         title="Watt — Battery Monitor",
-        menu=menu,
+        on_activate=lambda x, y: _popup_queue.put((x, y)),
+        on_context=lambda x, y:  _popup_queue.put((x, y)),
     )
+    _tray.set_icon(make_tray_icon(_state))
+
+    def _drain_popup_queue():
+        try:
+            while True:
+                x, y = _popup_queue.get_nowait()
+                try:
+                    _show_popup(x, y)
+                except Exception:
+                    logger.exception("_show_popup error")
+        except queue.Empty:
+            pass
+        _root.after(50, _drain_popup_queue)
+
+    _root.after(50, _drain_popup_queue)
 
     threading.Thread(target=_poll,            daemon=True).start()
     threading.Thread(target=_watch_charging,  daemon=True).start()

@@ -23,12 +23,15 @@ class AlertManager:
         self._fired_low.clear()
         self._fired_high.clear()
 
-    def check(self, state: BatteryState) -> list[tuple[str, str]]:
-        """Return list of (title, message) notifications to send."""
+    def check(self, state: BatteryState) -> list[tuple[str, str, str]]:
+        """Return list of (title, message, level) notifications to send.
+
+        level is one of: 'critical', 'warning', 'high', 'info'
+        """
         if not state.has_battery:
             return []
 
-        alerts: list[tuple[str, str]] = []
+        alerts: list[tuple[str, str, str]] = []
         cfg = self._config.data
         ac = cfg.get("alerts", {})
         th = cfg.get("thresholds", {})
@@ -37,23 +40,24 @@ class AlertManager:
 
         # ── Low thresholds (discharging below %) ────────────────────────────
         if ac.get("threshold_low", True) and not state.is_charging:
-            for t in sorted(th.get("low", []), reverse=True):
-                if state.percent <= t and t not in self._fired_low:
-                    self._fired_low.add(t)
+            for thresh in sorted(th.get("low", []), reverse=True):
+                if state.percent <= thresh and thresh not in self._fired_low:
+                    self._fired_low.add(thresh)
                     sub = (t("alert.low_critical") if state.percent <= 5
                            else t("alert.low_time", time=state.time_remaining_text))
-                    alerts.append((t("alert.low", pct=state.percent), sub))
-                elif state.percent > t + HYSTERESIS:
-                    self._fired_low.discard(t)
+                    level = "critical" if state.percent <= 5 else "warning"
+                    alerts.append((t("alert.low", pct=state.percent), sub, level))
+                elif state.percent > thresh + HYSTERESIS:
+                    self._fired_low.discard(thresh)
 
         # ── High thresholds (charging above %) ──────────────────────────────
         if ac.get("threshold_high", True) and state.is_charging:
-            for t in sorted(th.get("high", [])):
-                if state.percent >= t and t not in self._fired_high:
-                    self._fired_high.add(t)
+            for thresh in sorted(th.get("high", [])):
+                if state.percent >= thresh and thresh not in self._fired_high:
+                    self._fired_high.add(thresh)
                     alerts.append((t("alert.high", pct=state.percent),
-                                   t("alert.high_msg")))
-                elif state.percent < t - HYSTERESIS:
-                    self._fired_high.discard(t)
+                                   t("alert.high_msg"), "high"))
+                elif state.percent < thresh - HYSTERESIS:
+                    self._fired_high.discard(thresh)
 
         return alerts

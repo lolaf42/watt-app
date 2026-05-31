@@ -18,6 +18,11 @@ DEFAULT: dict = {
         "unplugged": True,
         "threshold_low": True,
         "threshold_high": True,
+        "glow_on_low": True,
+    },
+    "alert_hud": {
+        "pos_h": 50,
+        "pos_v": 50,
     },
     "autostart": False,
     "notification_sound": True,
@@ -29,9 +34,10 @@ DEFAULT: dict = {
     },
     "hud": {
         "position_v":       5,        # 0 (top) – 100 (bottom)
-        "position_h":      50,        # 0 (left) – 100 (right)
-        "animation":   "bounce",      # none / fade / bounce
+        "animation":   "bounce",      # none / fade / slide / bounce
         "anim_speed":     1.0,        # multiplier 0.25 – 3.0
+        "bg_lightness":    20,        # 0 (black) – 100 (white)
+        "win_alpha":       88,        # 10 – 100 %
     },
 }
 
