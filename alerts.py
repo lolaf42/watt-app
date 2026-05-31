@@ -33,14 +33,6 @@ class AlertManager:
         ac = cfg.get("alerts", {})
         th = cfg.get("thresholds", {})
 
-        # ── Plug / unplug ───────────────────────────────────────────────────
-        if self._prev_plugged is not None and state.is_plugged != self._prev_plugged:
-            if state.is_plugged and ac.get("plugged", True):
-                alerts.append((t("alert.connected"),
-                                t("alert.connected_msg", pct=state.percent)))
-            elif not state.is_plugged and ac.get("unplugged", True):
-                alerts.append((t("alert.disconnected"),
-                                t("alert.disconnected_msg", pct=state.percent)))
         self._prev_plugged = state.is_plugged
 
         # ── Low thresholds (discharging below %) ────────────────────────────

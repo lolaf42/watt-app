@@ -557,8 +557,11 @@ def main() -> None:
     _hud  = HudOverlay(_root, _config)
     _glow = ScreenGlow(_root, _config)
 
+    # Left-click opens popup directly (default=True, visible=False)
+    # Fallback right-click menu keeps Settings + Quit
     menu = pystray.Menu(
-        pystray.MenuItem(t("tray.details"), _on_details, default=True),
+        pystray.MenuItem(t("tray.details"), _on_details,
+                         default=True, visible=False),
         pystray.MenuItem(t("tray.settings"), _on_settings),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem(t("tray.quit"), _on_quit),
