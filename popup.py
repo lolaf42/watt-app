@@ -31,7 +31,8 @@ class BatteryPopup(tk.Toplevel):
                  on_settings: Callable = None,
                  on_quit: Callable = None,
                  app_version: str = "",
-                 state_fn: Callable = None):
+                 state_fn: Callable = None,
+                 from_hover: bool = False):
         super().__init__(parent)
         self.overrideredirect(True)
         self.attributes("-topmost", True)
@@ -56,12 +57,18 @@ class BatteryPopup(tk.Toplevel):
         w  = self.winfo_reqwidth()
         h  = self.winfo_reqheight()
         x = max(0, min(click_x - w // 2, sw - w - 8))
-        y = click_y - h - 8 if click_y > sh // 2 else click_y + 8
+        if click_y > sh // 2:
+            y = click_y - h - 8          # below center → popup above click
+        elif click_y < 80:
+            y = 76                        # top panel icon → popup below panel
+        else:
+            y = click_y + 8
         y = max(0, min(y, sh - h - 8))
         self.geometry(f"+{x}+{y}")
-        self.focus_force()
-        self.grab_set()
-        self.after(200, self._arm_close)
+        if not from_hover:
+            self.focus_force()
+            self.grab_set()
+        self.after(400, self._arm_close)
 
         if self._state_fn:
             self.after(1000, self._tick)
@@ -116,8 +123,8 @@ class BatteryPopup(tk.Toplevel):
         if s.temperature_celsius is not None:
             tc = (self.RED if s.temperature_celsius >= 50
                   else "#FFA000" if s.temperature_celsius >= 40 else self.GRN)
-            if "temp"      in r: r["temp"].config(text=f"🌡 {s.temperature_celsius:.1f}°C", fg=tc)
-            if "temp_f"    in r: r["temp_f"].config(text=f"   {s.temperature_celsius*9/5+32:.1f}°F")
+            if "temp"      in r: r["temp"].config(text=f"🌡 {s.temperature_celsius:.0f}°C", fg=tc)
+            if "temp_f"    in r: r["temp_f"].config(text=f"   {s.temperature_celsius*9/5+32:.0f}°F")
             sc = self.GRN if s.temperature_celsius < 40 else "#FFA000"
             ln = "● Normal" if s.temperature_celsius < 40 else "● High"
             if "temp_st"   in r: r["temp_st"].config(text=ln, fg=sc)
@@ -148,8 +155,8 @@ class BatteryPopup(tk.Toplevel):
         if not self.winfo_exists():
             return
         self.bind("<ButtonPress>", self._on_press)
-        # FocusOut fires when user switches to another app
         self.bind("<FocusOut>", self._on_focus_out)
+        self.bind("<Leave>", self._on_mouse_leave)
 
     def _on_press(self, event):
         """Close if the click landed outside the popup (uses screen coords)."""
@@ -160,6 +167,25 @@ class BatteryPopup(tk.Toplevel):
             pw, ph = self.winfo_width(), self.winfo_height()
             if not (px <= event.x_root <= px + pw and
                     py <= event.y_root <= py + ph):
+                self.destroy()
+        except Exception:
+            self.destroy()
+
+    def _on_mouse_leave(self, event):
+        if event.widget is self:
+            self.after(600, self._close_if_outside)
+
+    def _close_if_outside(self):
+        if not self.winfo_exists():
+            return
+        try:
+            mx = self.winfo_pointerx()
+            my = self.winfo_pointery()
+            wx, wy = self.winfo_x(), self.winfo_y()
+            ww, wh = self.winfo_width(), self.winfo_height()
+            in_popup = wx - 8 <= mx <= wx + ww + 8 and wy - 8 <= my <= wy + wh + 8
+            in_panel = my < 72   # mouse is back over tray icon — don't close
+            if not in_popup and not in_panel:
                 self.destroy()
         except Exception:
             self.destroy()
@@ -324,10 +350,10 @@ class BatteryPopup(tk.Toplevel):
             body = self._card("✓", tc, temp_title)
             tr = tk.Frame(body, bg=self.BGC); tr.pack(fill="x")
             lf = tk.Frame(tr, bg=self.BGC); lf.pack(side="left")
-            r["temp"] = tk.Label(lf, text=f"🌡 {s.temperature_celsius:.1f}°C",
+            r["temp"] = tk.Label(lf, text=f"🌡 {s.temperature_celsius:.0f}°C",
                                  bg=self.BGC, fg=tc, font=("Segoe UI", 18, "bold"))
             r["temp"].pack(anchor="w")
-            r["temp_f"] = tk.Label(lf, text=f"   {s.temperature_celsius*9/5+32:.1f}°F",
+            r["temp_f"] = tk.Label(lf, text=f"   {s.temperature_celsius*9/5+32:.0f}°F",
                                    bg=self.BGC, fg=self.DIM, font=("Segoe UI", 10))
             r["temp_f"].pack(anchor="w")
             rf2 = tk.Frame(tr, bg=self.BGC); rf2.pack(side="right", anchor="ne")

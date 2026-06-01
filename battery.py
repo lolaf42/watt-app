@@ -97,7 +97,7 @@ def _read_board_temp() -> Optional[float]:
                     if "local" in label.lower():
                         raw = _read_int(f"{base}/{dev}/temp{i}_input")
                         if raw and 5_000 < raw < 90_000:
-                            return raw / 1000.0
+                            return float(round(raw / 1000.0))
     except Exception:
         pass
     return None

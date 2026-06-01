@@ -10,7 +10,7 @@ import cairo
 
 # ── Layout ─────────────────────────────────────────────────────────────────────
 W, H, R = 340, 72, 36      # pill width, height, corner radius
-PAD     = 2                 # minimal padding for anti-aliasing
+PAD     = 20                # canvas margin — must cover max halo reach (12px + 8px stroke)
 CW, CH  = W + 2*PAD, H + 2*PAD
 
 DISMISS_MS = 5000
@@ -104,7 +104,7 @@ class HudWindow(Gtk.Window):
             self.set_visual(visual)
 
         self.set_default_size(CW, CH)
-        self.move(cfg["x"], cfg["y"])
+        self.move(cfg["x"] - PAD, cfg["y"] - PAD)
         self.connect("draw", self._draw)
         self.connect("destroy", Gtk.main_quit)
         if cfg.get("alert"):
@@ -182,27 +182,33 @@ class HudWindow(Gtk.Window):
             rc, gc, bc = _ALERT_COL.get(level, _ALERT_COL["warning"])
             p = self._pulse   # 0..1 sine wave
 
-            # Layer 1 — wide soft outer halo
-            cr.set_source_rgba(rc, gc, bc, 0.30 * a * p)
-            _rounded_rect(cr, PAD - 10, PAD - 10, W + 20, H + 20, R + 10)
-            cr.set_line_width(14.0)
+            # Layer 1 — wide outer glow (now unclipped thanks to PAD=20)
+            cr.set_source_rgba(rc, gc, bc, 0.22 * a * p)
+            _rounded_rect(cr, PAD - 14, PAD - 14, W + 28, H + 28, R + 14)
+            cr.set_line_width(18.0)
             cr.stroke()
 
-            # Layer 2 — medium halo
-            cr.set_source_rgba(rc, gc, bc, 0.45 * a * p)
-            _rounded_rect(cr, PAD - 5, PAD - 5, W + 10, H + 10, R + 5)
+            # Layer 2 — medium glow
+            cr.set_source_rgba(rc, gc, bc, 0.42 * a * p)
+            _rounded_rect(cr, PAD - 6, PAD - 6, W + 12, H + 12, R + 6)
             cr.set_line_width(8.0)
             cr.stroke()
 
-            # Layer 3 — sharp main border, width pulses between 4 and 9
-            lw = 4.0 + 5.0 * p
-            cr.set_source_rgba(rc, gc, bc, (0.70 + 0.30 * p) * a)
+            # Layer 3 — grey separator ring (pill-colour, frames the colored border)
+            cr.set_source_rgba(bg_r + 0.22, bg_g + 0.22, bg_b + 0.24, 0.80 * a)
+            _rounded_rect(cr, PAD - 2, PAD - 2, W + 4, H + 4, R + 2)
+            cr.set_line_width(3.0)
+            cr.stroke()
+
+            # Layer 4 — sharp colored border, drawn on top, width pulses 3→7 px
+            lw = 3.0 + 4.0 * p
+            cr.set_source_rgba(rc, gc, bc, (0.72 + 0.28 * p) * a)
             _rounded_rect(cr, PAD, PAD, W, H, R)
             cr.set_line_width(lw)
             cr.stroke()
 
             # Inner tint fill
-            cr.set_source_rgba(rc, gc, bc, 0.14 * a * p)
+            cr.set_source_rgba(rc, gc, bc, 0.11 * a * p)
             _rounded_rect(cr, PAD, PAD, W, H, R)
             cr.fill()
 
@@ -321,12 +327,12 @@ class HudWindow(Gtk.Window):
         p   = (i+1)/n
         off = 120 if self._cfg.get("pos_v",5) > 50 else -120
         ease = 1-(1-p)**4
-        self.move(self._cfg["x"],
-                  self._cfg["y"] + int(off*(1-ease)))
+        self.move(self._cfg["x"] - PAD,
+                  self._cfg["y"] - PAD + int(off*(1-ease)))
         self._alpha = min(wa, wa*p*2.0)
         self.queue_draw()
         if i < n-1: GLib.timeout_add(16, lambda: self._slide_in(i+1,n,wa) or False)
-        else: self.move(self._cfg["x"],self._cfg["y"]); self._alpha=wa; self._after_enter()
+        else: self.move(self._cfg["x"]-PAD, self._cfg["y"]-PAD); self._alpha=wa; self._after_enter()
 
     def _bounce_in(self, i, n, wa):
         # Elastic spring — overshoots target then settles
@@ -334,11 +340,11 @@ class HudWindow(Gtk.Window):
         c4 = math.pi*0.90
         sp = pow(2,-10*p)*math.sin((p*10-0.75)*c4)+1 if p<1 else 1.0
         off = 140 if self._cfg.get("pos_v",5) > 50 else -140
-        self.move(self._cfg["x"], self._cfg["y"] + int(off*(1-sp)))
+        self.move(self._cfg["x"] - PAD, self._cfg["y"] - PAD + int(off*(1-sp)))
         self._alpha = min(wa, wa*p*3.5)
         self.queue_draw()
         if i < n-1: GLib.timeout_add(16, lambda: self._bounce_in(i+1,n,wa) or False)
-        else: self.move(self._cfg["x"],self._cfg["y"]); self._alpha=wa; self._after_enter()
+        else: self.move(self._cfg["x"]-PAD, self._cfg["y"]-PAD); self._alpha=wa; self._after_enter()
 
     def _snake_step(self, i, n):
         t = (i+1)/n

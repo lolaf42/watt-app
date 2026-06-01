@@ -43,6 +43,9 @@ _glow: Optional[ScreenGlow] = None
 _popup: Optional[tk.Toplevel] = None
 _settings_win: Optional[SettingsWindow] = None
 _popup_opened_at: float = 0.0   # timestamp of last popup open
+_icon_center: tuple[int, int] = (0, 0)  # last known tray icon screen position
+_hover_was_near: bool = False
+_hover_close_ticks: int = 0
 
 # Thread-safe queue for cross-thread popup requests
 _popup_queue: queue.Queue = queue.Queue()
@@ -211,17 +214,18 @@ def _watch_charging() -> None:
 # ── Tray callbacks ─────────────────────────────────────────────────────────────
 
 
-def _show_popup(icon_x: int = 0, icon_y: int = 0) -> None:
-    global _popup, _popup_opened_at
+def _show_popup(icon_x: int = 0, icon_y: int = 0,
+                from_hover: bool = False) -> None:
+    global _popup, _popup_opened_at, _icon_center
     now = time.time()
+    if icon_x and icon_y:
+        old = _icon_center
+        _icon_center = (icon_x, icon_y)
+        if abs(old[0] - icon_x) > 5 or abs(old[1] - icon_y) > 5:
+            _config.data["_tray_icon_pos"] = [icon_x, icon_y]
+            _config.save()
     if _popup and _popup.winfo_exists():
-        # Ignore close request if popup was just opened (<500 ms ago)
-        # — prevents GNOME sending Activate+ContextMenu for one click
-        if now - _popup_opened_at < 0.5:
-            return
-        _popup.destroy()
-        _popup = None
-        return
+        return  # already open — hover or click keeps it open
     with _state_lock:
         state = _state
     x = icon_x or (_root.winfo_pointerx() if _root else 0)
@@ -234,8 +238,54 @@ def _show_popup(icon_x: int = 0, icon_y: int = 0) -> None:
     _popup = BatteryPopup(_root, state, click_x=x, click_y=y,
                           on_settings=_on_settings, on_quit=_on_quit,
                           app_version=APP_VERSION,
-                          state_fn=_current_state)
+                          state_fn=_current_state,
+                          from_hover=from_hover)
     _popup_opened_at = now
+
+
+def _hover_loop() -> None:
+    """Poll mouse position; open popup on hover over icon, close when mouse wanders away."""
+    global _hover_was_near, _hover_close_ticks, _popup
+    try:
+        if _root:
+            mx = _root.winfo_pointerx()
+            my = _root.winfo_pointery()
+
+            near_icon = False
+            if _icon_center != (0, 0):
+                ix, iy = _icon_center
+                # Match only the icon itself: ±18px vertically (panel height),
+                # ±18px horizontally (icon width ~22px logical at up to 200% HiDPI)
+                near_icon = abs(my - iy) <= 18 and abs(mx - ix) <= 18
+                if near_icon != _hover_was_near:
+                    logger.info("hover state: near=%s mouse=(%d,%d) icon=(%d,%d)",
+                                near_icon, mx, my, ix, iy)
+                if near_icon and not _hover_was_near:
+                    if not (_popup and _popup.winfo_exists()):
+                        _show_popup(ix, iy, from_hover=True)
+                _hover_was_near = near_icon
+
+            # Auto-close after ~500ms when mouse is away from both icon and popup
+            if _popup and _popup.winfo_exists():
+                try:
+                    px, py = _popup.winfo_x(), _popup.winfo_y()
+                    pw, ph = _popup.winfo_width(), _popup.winfo_height()
+                    in_popup = (px - 20 <= mx <= px + pw + 20 and
+                                py - 6 <= my <= py + ph + 20)
+                    if not near_icon and not in_popup:
+                        _hover_close_ticks += 1
+                        if _hover_close_ticks >= 8:   # 8 × 120ms ≈ 1s
+                            _popup.destroy()
+                            _popup = None
+                            _hover_close_ticks = 0
+                    else:
+                        _hover_close_ticks = 0
+                except Exception:
+                    _hover_close_ticks = 0
+    except Exception:
+        pass
+    if _root:
+        _root.after(120, _hover_loop)
 
 
 def _on_settings(_icon=None, _item=None) -> None:
@@ -284,7 +334,7 @@ def _on_quit(_icon=None, _item=None) -> None:
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    global _tray, _root, _hud, _glow, _state, _prev_state
+    global _tray, _root, _hud, _glow, _state, _prev_state, _icon_center
 
     _state = get_battery_state()
     _prev_state = _state   # prevents first poll from re-triggering glow
@@ -292,6 +342,12 @@ def main() -> None:
     _root = tk.Tk()
     _root.withdraw()
     _root.title("Watt")
+
+    # Restore last known tray icon position so hover works immediately on re-launch
+    saved = _config.data.get("_tray_icon_pos", [0, 0])
+    if saved[0] and saved[1]:
+        _icon_center = (int(saved[0]), int(saved[1]))
+        logger.info("Restored tray icon position: %s", _icon_center)
 
     _hud  = HudOverlay(_root, _config)
     _glow = ScreenGlow(_root, _config)
@@ -317,6 +373,7 @@ def main() -> None:
         _root.after(50, _drain_popup_queue)
 
     _root.after(50, _drain_popup_queue)
+    _root.after(500, _hover_loop)
 
     threading.Thread(target=_poll,            daemon=True).start()
     threading.Thread(target=_watch_charging,  daemon=True).start()
